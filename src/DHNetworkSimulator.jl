@@ -13,8 +13,8 @@ const MINIMAL_RETURN_TEMPERATURE = 25.0 # °C, minimal return temperature for th
 include("types.jl")
 
 export dhNodeType, dhEdgeType, dhNodeCommon
-export dhJunctionNode, dhLoadNode, dhProducerNode, dhEmptyNode
-export dhPipeEdge, dhEmptyEdge, Plug
+export dhJunctionNode, dhLoadNode, dhProducerNode, EmptyNode
+export dhPipeEdge, EmptyEdge, Plug
 export dhNetwork
 export EmptyNode, EmptyEdge
 export InsulatedPipe, JunctionNode, LoadNode, ProducerNode

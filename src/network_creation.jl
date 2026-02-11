@@ -45,7 +45,7 @@ function fill_node_positions!(network::dhNetwork, node_positions::Dict{String, T
     for (label, pos) in node_positions
         if has_label(network, label)
             node_data = network[label]
-            if !(node_data isa dhEmptyNode)
+            if !(node_data isa EmptyNode)
                 node_data.common.position = pos
                 network[label] = node_data  # update the node data in the network
             end

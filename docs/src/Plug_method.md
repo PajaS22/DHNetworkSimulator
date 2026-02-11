@@ -1,5 +1,6 @@
 
-# Plug method for thermal dynamics
+# Plug method
+*One of the ways to solve thermo-dynamics with hydraulics.*
 
 This project solves heat transport in a district heating network using a **plug-flow (parcel) method**.
 Each pipe contains a queue of discrete **plugs of water**, where every plug has:
@@ -40,11 +41,11 @@ Within a pipe, plugs are treated as **non-mixing** parcels (no axial mixing). Mi
 
 ## One simulation time step (high level)
 
-For each time step of length $\Delta t$:
+For each time step of length Δt:
 
 1. **Insert new hot plugs at the producer** into each outgoing supply pipe.
 2. **Forward pass (supply)**: move plugs from producer to loads using current mass flows.
-3. **Loads**: compute required power $P(T_a)$ from ambient temperature and cool the arriving plug accordingly.
+3. **Loads**: compute required power ``P(T_a)`` from ambient temperature and cool the arriving plug accordingly.
 4. **Backward pass (return)**: push cooled plugs back to the producer, mixing at junctions as needed.
 5. **Heat losses to ambient**: cool all plugs remaining in pipes (supply and return) using an exponential heat-loss model.
 
@@ -58,15 +59,19 @@ The overall simulation loop is orchestrated by `run_simulation`.
 
 For each outgoing edge from the producer, a new plug is created with:
 
-$$ m_{in} = \dot m\,\Delta t $$
+```math
+m_{in} = \dot m\,\Delta t
+```
 
 and temperature equal to the producer outlet temperature for that step. The plug is appended to that pipe’s forward queue.
 
 ### 2) Plug advection through a pipe
 
-For a pipe with mass flow $\dot m$, the algorithm computes the mass that must exit the pipe in this step:
+For a pipe with mass flow ``\dot m``, the algorithm computes the mass that must exit the pipe in this step:
 
-$$ m_{out} = \dot m\,\Delta t $$
+```math
+m_{out} = \dot m\,\Delta t
+```
 
 It then pops plugs from the **front** of the queue until the exiting mass is reached. If a plug is larger than the remaining mass to exit, it is **split** into an exiting part and a remaining part.
 
@@ -76,7 +81,9 @@ This is implemented by `collect_exiting_water_plugs!`.
 
 When a node has multiple children, the exiting plug mass is split among outgoing edges proportional to edge mass flows:
 
-$$ m_{child} = m_{plug}\,\frac{\dot m_{child}}{\sum_k \dot m_k} $$
+```math
+m_{child} = m_{plug}\,\frac{\dot m_{child}}{\sum_k \dot m_k}
+```
 
 Each child receives a new plug with the same temperature and the computed mass. These plugs are appended to the child edges’ forward queues.
 
@@ -84,7 +91,9 @@ Each child receives a new plug with the same temperature and the computed mass. 
 
 At a leaf node, all plugs that arrive during the step are combined into a single representative plug using a **mass-weighted average**:
 
-$$ T_{avg} = \frac{\sum_i T_i m_i}{\sum_i m_i} $$
+```math
+T_{avg} = \frac{\sum_i T_i m_i}{\sum_i m_i}
+```
 
 This is implemented by `combine_plugs`.
 
@@ -94,15 +103,19 @@ The resulting plug is interpreted as the **supply plug entering the load** for t
 
 ## Load model: consuming heat
 
-Each load node computes power demand based on ambient temperature $T_a$ (we use polynomial of 2nd order approximation)
+Each load node computes power demand based on ambient temperature ``T_a`` (we use a 2nd-order polynomial approximation):
 
-$$ P = P(T_a) = p_1 + p_2 T_a + p_3 T_a^2 $$
+```math
+P = P(T_a) = p_1 + p_2 T_a + p_3 T_a^2
+```
 
 The entering plug is cooled by energy extraction over the step:
 
-$$ \Delta T = \frac{P\,\Delta t}{m\,c_p} $$
+```math
+\Delta T = \frac{P\,\Delta t}{m\,c_p}
+```
 
-so the return-side plug temperature becomes $T - \Delta T$.
+so the return-side plug temperature becomes ``T - \Delta T``.
 
 To avoid unphysical results (like cooling the plug to lower temperature than is inside the building), the implementation clamps return temperature to a configured minimal value (`MINIMAL_RETURN_TEMPERATURE = 25.0`).
 
@@ -133,16 +146,16 @@ After advection, both in forward and backward pass, the remaining plugs in pipes
 
 For each plug, temperature is updated using an exponential model:
 
-$$
+```math
 T_{next} = T_a + (T - T_a)\exp\left(-\frac{\Delta t}{\rho c_p A R}\right)
-$$
+```
 
 where:
 
-- $\rho$ is water density (`WATER_DENSITY`)
-- $c_p$ is specific heat (`WATER_SPECIFIC_HEAT`)
-- $A$ is cross-sectional area of the pipe $A = \pi(d/2)^2$
-- $R$ is pipe thermal resistance ... this is given by pipe insulation and usually differs for forward and backward pass
+- ``\rho`` is water density (`WATER_DENSITY`)
+- ``c_p`` is specific heat (`WATER_SPECIFIC_HEAT`)
+- ``A`` is cross-sectional area of the pipe ``A = \pi(\frac{d}{2})^2``
+- ``R`` is pipe thermal resistance ... this is given by pipe insulation and usually differs for forward and backward pass
 
 
 ---
@@ -152,5 +165,5 @@ where:
 - The current network traversal assumes a **directed tree** (each non-root node has one parent).
 - There is **no axial mixing** inside a pipe: plugs only merge when explicitly combined (e.g., at reporting points or junction return merging).
 - The plug representation is simplified over time by merging consecutive plugs with nearly identical temperature (`merge_same_temperature_plugs!`).
-- Stability and realism depend on choosing a reasonable $\Delta t$ relative to flows and pipe volumes.
+- Stability and realism depend on choosing a reasonable Δt relative to flows and pipe volumes.
 

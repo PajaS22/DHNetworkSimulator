@@ -7,6 +7,7 @@ abstract type dhNodeType end
 abstract type dhEdgeType end
 
 # Common Node Data (shared by all node types)
+"Common data for all node types in the DH network (e.g., junctions, loads, producers)"
 mutable struct dhNodeCommon
     info::String
     position::Union{Missing, Tuple{Float64, Float64}}  # (x, y) coordinates
@@ -14,11 +15,13 @@ mutable struct dhNodeCommon
 end
 
 # Junction Node: connection point with no heat consumption/production
+"DH network node representing a junction, where pipes can connect but no heat is produced or consumed."
 struct dhJunctionNode <: dhNodeType
     common::dhNodeCommon
 end
 
 # Load Node: heat consumer
+"DH network node representing a load, which consumes heat. The load field defines quadratic function of power consumption P(Tₐ) = p₀ + p₁*Tₐ + p₂*Tₐ²."
 mutable struct dhLoadNode <: dhNodeType
     common::dhNodeCommon
     load::Union{Missing, NTuple{3, Float64}}     # Heat load function in kW, P(Tₐ) = p₀ + p₁*Tₐ + p₂*Tₐ²
@@ -26,12 +29,14 @@ mutable struct dhLoadNode <: dhNodeType
 end
 
 # Producer Node: heat producer
+"DH network node representing a producer, which heats water. There may be only one producer in the network, and it is identified by its label (producer_label field in dhNetwork)."
 struct dhProducerNode <: dhNodeType
     common::dhNodeCommon
 end
 
 # empty Node: just for initialization purposes
-struct dhEmptyNode <: dhNodeType end
+"An empty node type used for initialization and placeholder purposes in the DH network."
+struct EmptyNode <: dhNodeType end
 
 # ------------------------------------------------ #
 # PIPE MODEL
@@ -60,7 +65,7 @@ mutable struct dhPipeEdge <: dhEdgeType
     plugs_b::Vector{Plug}               # Queue of plugs in the pipe (backward direction)
 end
 
-struct dhEmptyEdge <: dhEdgeType end
+struct EmptyEdge <: dhEdgeType end
 
 # ------------------------------------------------- #
 # DH NETWORK TYPE
@@ -91,8 +96,6 @@ end
 # PIPE CONSTRUCTORS
 # ------------------------------------------------- #
 
-EmptyEdge() = dhEmptyEdge()
-
 function InsulatedPipe(info::String;
                         length::Float64=100.0,
                         inner_diameter::Float64=0.1,
@@ -114,7 +117,6 @@ InsulatedPipe(length::Real) = InsulatedPipe("pipe"; length=float(length))
 # ------------------------------------------------- #
 # NODE CONSTRUCTORS
 # ------------------------------------------------- #
-EmptyNode() = dhEmptyNode()
 
 # dhNodeCommon constructors
 dhNodeCommon(info::String) = dhNodeCommon(info, missing, missing)

@@ -13,7 +13,7 @@ node_color(::dhLoadNode) = colorant"blue"
 node_color(::dhNodeType) = colorant"gray"  # default color
 node_colors(mg::MetaGraph) = [node_color(mg[v]) for v in labels(mg)]
 
-node_label(::dhEmptyNode) = ""  # no label for empty nodes
+node_label(::EmptyNode) = ""  # no label for empty nodes
 node_label(n::T) where {T<:dhNodeType} = n.common.info # label for node types
 node_label(::dhJunctionNode) = ""  # no label for junction nodes
 node_label(mg::MetaGraph, i::Int) = node_label(vertex_idx(mg, i))
@@ -59,8 +59,8 @@ function edge_info_hover(e::T) where {T<:dhEdgeType}
     end
     return info
 end
-edge_info_hover(::dhEmptyEdge) = ""
-edge_info(::dhEmptyEdge) = ""
+edge_info_hover(::EmptyEdge) = ""
+edge_info(::EmptyEdge) = ""
 function edge_info(e::T) where {T<:dhEdgeType} # non-hover label for edge types
     info = ""
     if !ismissing(e.mass_flow)

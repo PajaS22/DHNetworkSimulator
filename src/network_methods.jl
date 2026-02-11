@@ -82,7 +82,7 @@ Graphs.indegree(nw::dhNetwork, label::String) = Graphs.indegree(nw::dhNetwork, i
 
 
 # Node data operations: positions
-position(::dhEmptyNode) = missing
+position(::EmptyNode) = missing
 position(v::NT)  where {NT<:dhNodeType} = !ismissing(v.common.position) ? (v.common.position[1], v.common.position[2]) : missing
 positions(mg::MetaGraph) = [position(v) for v in vertices_data(mg)]
 distance(v1::dhNodeType, v2::dhNodeType) = sqrt((v1.common.position[1] - v2.common.position[1])^2 + (v1.common.position[2] - v2.common.position[2])^2)

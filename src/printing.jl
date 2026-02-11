@@ -56,7 +56,7 @@ function Base.show(io::IO, node::dhNodeType)
     print(io, "$(typeof(node))")
 end
 # Empty node (minimal)
-function Base.show(io::IO, ::dhEmptyNode)
+function Base.show(io::IO, ::EmptyNode)
     println(io, "Empty Node")
 end
 
@@ -91,7 +91,7 @@ function Base.show(io::IO, edge::dhEdgeType)
     print(io, "$(typeof(edge))")
 end
 # Empty edge (minimal)
-function Base.show(io::IO, ::dhEmptyEdge)
+function Base.show(io::IO, ::EmptyEdge)
     println(io, "Empty Edge")
 end
 # Pipe edge (with details)
