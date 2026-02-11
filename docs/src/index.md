@@ -34,7 +34,7 @@ The easiest way to get a feel for the API is to run one of the example scripts.
 ```julia
 using DHNetworkSimulator
 
-network = dhNetwork()
+network = Network()
 network["producer"] = ProducerNode((0.0, 0.0))
 
 # ... add junctions/loads/pipes here ...

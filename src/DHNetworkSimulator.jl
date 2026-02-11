@@ -1,7 +1,7 @@
 module DHNetworkSimulator
 
 using Graphs, MetaGraphsNext, DataStructures
-using ForwardMethods                            # for overloading functions from Graphs.jl and MetaGraphs.jl on dhNetwork
+using ForwardMethods                            # for overloading functions from Graphs.jl and MetaGraphs.jl on Network
 using GraphMakie, GLMakie, Colors, ColorSchemes
 using Plots
 using Dates
@@ -12,10 +12,10 @@ const MINIMAL_RETURN_TEMPERATURE = 25.0 # °C, minimal return temperature for th
 
 include("types.jl")
 
-export dhNodeType, dhEdgeType, dhNodeCommon
-export dhJunctionNode, dhLoadNode, dhProducerNode, EmptyNode
-export dhPipeEdge, EmptyEdge, Plug
-export dhNetwork
+export NodeType, EdgeType, NodeCommon
+export JunctionNode, LoadNode, ProducerNode, EmptyNode
+export InsulatedPipe, EmptyEdge, Plug
+export Network
 export EmptyNode, EmptyEdge
 export InsulatedPipe, JunctionNode, LoadNode, ProducerNode
 

@@ -3,7 +3,7 @@
     - přidám různé typy LOADs, které budou odebírat vždy stejný poměr vstupního proudu
     - 1. použiji menší město (pouze LOK2 subgraph)
     - 2. zkusím to na plné velké LOK2 město
-- dhNetwork by mělo přijítmat při konstrukci
+- Network by mělo přijítmat při konstrukci
     - Simple graph nebo Directed graph, žádný metagraph (ten bude použit pro skladování parametrů)
     - fyzické parametry trubek indexované počátečním a koncovým vrcholem
 - create a dhNetworkVisualizer, which will be returned on visualize and 

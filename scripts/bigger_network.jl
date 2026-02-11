@@ -22,7 +22,7 @@ digraph, edge_params, node_names, node_positions, power_coefs, m_r = load("datas
 outdoor_temperature_ts = load("datasets/outdoor_temperature_ts.jld2", "outdoor_temperature_ts")
 
 
-network = DHN.dhNetwork(digraph)
+network = DHN.Network(digraph)
 fill_physical_params!(network, edge_params)
 name_nodes!(network, node_names)
 identify_producer_and_loads!(network)

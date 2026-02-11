@@ -1,5 +1,5 @@
 @testset "simulation" begin
-    network = dhNetwork()
+    network = Network()
     junction1_pos = (100.0, 0.0)
     junction2_pos = (250.0, 0.0)
     network["producer"] = ProducerNode((0.0, 0.0))

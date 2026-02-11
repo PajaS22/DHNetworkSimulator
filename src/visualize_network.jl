@@ -1,21 +1,21 @@
 # ---------------------------------------------------------------------
-# visualization function for dhNetwork using GraphMakie
+# visualization function for Network using GraphMakie
 # ---------------------------------------------------------------------
 
-node_size(::dhJunctionNode) = 0   # specific size for junction nodes
-node_size(::dhProducerNode) = 25  # specific size for producer nodes
-node_size(::dhNodeType) = 18      # default size for other node types
+node_size(::JunctionNode) = 0   # specific size for junction nodes
+node_size(::ProducerNode) = 25  # specific size for producer nodes
+node_size(::NodeType) = 18      # default size for other node types
 node_sizes(mg::MetaGraph) = [node_size(v) for v in vertices_data(mg)]
 
-node_color(::dhJunctionNode) = colorant"black"
-node_color(::dhProducerNode) = colorant"green"
-node_color(::dhLoadNode) = colorant"blue"
-node_color(::dhNodeType) = colorant"gray"  # default color
+node_color(::JunctionNode) = colorant"black"
+node_color(::ProducerNode) = colorant"green"
+node_color(::LoadNode) = colorant"blue"
+node_color(::NodeType) = colorant"gray"  # default color
 node_colors(mg::MetaGraph) = [node_color(mg[v]) for v in labels(mg)]
 
 node_label(::EmptyNode) = ""  # no label for empty nodes
-node_label(n::T) where {T<:dhNodeType} = n.common.info # label for node types
-node_label(::dhJunctionNode) = ""  # no label for junction nodes
+node_label(n::T) where {T<:NodeType} = n.common.info # label for node types
+node_label(::JunctionNode) = ""  # no label for junction nodes
 node_label(mg::MetaGraph, i::Int) = node_label(vertex_idx(mg, i))
 node_labels(mg::MetaGraph) = [node_label(v) for v in vertices_data(mg)]
 
@@ -23,9 +23,9 @@ edge_colors(mg::MetaGraph) = [edge_color(mg[src, dst]) for (src, dst) in edge_la
 const max_velocity_for_color = 2.0 # m/s, velocity at which the color will be the most intense
 const min_velocity_for_color = 0.0 # m/s, velocity at which the color will be the least intense
 const colormap = cgrad(:lajolla) # color gradient for edge coloring based on velocity
-function edge_color(e::T)::RGBA{Float64} where {T<:dhEdgeType} 
+function edge_color(e::T)::RGBA{Float64} where {T<:EdgeType} 
     color = colorant"black" # default color for non-pipe edges
-    if e isa dhPipeEdge
+    if e isa InsulatedPipe
         vel = water_velocity(e)
         if !ismissing(vel)
             # scale velocity to [1,255//2] for color mapping
@@ -39,7 +39,7 @@ function edge_color(e::T)::RGBA{Float64} where {T<:dhEdgeType}
 end
 
 function edge_widths(mg::MetaGraph, max_width::Float64=5.0, min_width::Float64=1.0)
-    ds = [mg[src,dst] isa dhPipeEdge ? mg[src,dst].physical_params.inner_diameter : missing for (src,dst) in edge_labels(mg)]
+    ds = [mg[src,dst] isa InsulatedPipe ? mg[src,dst].physical_params.inner_diameter : missing for (src,dst) in edge_labels(mg)]
     min_d = minimum(ds)
     max_d = maximum(ds)
 
@@ -52,7 +52,7 @@ function edge_widths(mg::MetaGraph, max_width::Float64=5.0, min_width::Float64=1
     return ds_scaled
 end
 
-function edge_info_hover(e::T) where {T<:dhEdgeType}
+function edge_info_hover(e::T) where {T<:EdgeType}
     info = e.info * ", L=$(round(pipe_length(e), digits=1)) m, D=$(round(inner_diameter(e)*100, digits=1)) cm"  # label for edge types
     if !ismissing(e.mass_flow)
         info *= ", v=$(round(water_velocity(e), digits=2)) m/s"
@@ -61,7 +61,7 @@ function edge_info_hover(e::T) where {T<:dhEdgeType}
 end
 edge_info_hover(::EmptyEdge) = ""
 edge_info(::EmptyEdge) = ""
-function edge_info(e::T) where {T<:dhEdgeType} # non-hover label for edge types
+function edge_info(e::T) where {T<:EdgeType} # non-hover label for edge types
     info = ""
     if !ismissing(e.mass_flow)
         info *= "ṁ=$(round(e.mass_flow, digits=2)) kg/s, "
@@ -74,7 +74,7 @@ end
 edge_infos(mg::MetaGraph) = [edge_info(mg[src, dst]) for (src, dst) in edge_labels(mg)]
 
 
-function visualize_graph!(nw::dhNetwork)
+function visualize_graph!(nw::Network)
     mg = nw.mg
     # visualize the MetaGraph using GraphMakie
     # it changes the graph properties to store edge ids for interaction handling

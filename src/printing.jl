@@ -3,10 +3,10 @@
 # ------------------------------------------------- #
 
 # ------------------------------------------------ #
-# nice printing of dhNetwork
+# nice printing of Network
 # ------------------------------------------------ #
 
-function Base.show(io::IO, nw::dhNetwork)
+function Base.show(io::IO, nw::Network)
     println(io, "DH Network:")
     println(io, " Number of nodes: ", nv(nw))
     println(io, " Number of edges: ", ne(nw))
@@ -28,7 +28,7 @@ function Base.show(io::IO, nw::dhNetwork)
     print_edges(nw)
 end
 # print edges(network)
-function print_edges(nw::dhNetwork)
+function print_edges(nw::Network)
     println("Edges in the network:")
     for e in edges(nw)
         src_label = label_for(nw, src(e))
@@ -37,7 +37,7 @@ function print_edges(nw::dhNetwork)
     end
 end
 # print nodes(network)
-function print_nodes(nw::dhNetwork)
+function print_nodes(nw::Network)
     println("Nodes in the network:")
     for v in labels(nw.mg)
         print("[$(code_for(nw.mg, v))] $v : ", nw.mg[v])
@@ -47,12 +47,12 @@ end
 # ------------------------------------------------ #
 # nice printing of Node
 # ------------------------------------------------ #
-function string_node_common(common::dhNodeCommon)::String
+function string_node_common(common::NodeCommon)::String
     summary = "Info: $(common.info)"
     summary *= (!ismissing(common.mass_flow) ? ", Mass flow: $(round(common.mass_flow; digits=2)) kg/s" : "")
     return summary
 end
-function Base.show(io::IO, node::dhNodeType)
+function Base.show(io::IO, node::NodeType)
     print(io, "$(typeof(node))")
 end
 # Empty node (minimal)
@@ -61,14 +61,14 @@ function Base.show(io::IO, ::EmptyNode)
 end
 
 # Junction node (with details)
-function Base.show(io::IO, node::dhJunctionNode)
+function Base.show(io::IO, node::JunctionNode)
     summary = "Junction Node, "
     summary *= string_node_common(node.common)
     println(io, summary)
 end
 
 # Load node (with load info)
-function Base.show(io::IO, node::dhLoadNode)
+function Base.show(io::IO, node::LoadNode)
     summary = "Load Node, "
     summary *= string_node_common(node.common)
     summary *= !ismissing(node.load) ? ", Load (at 0°C): $(round(node.load[1]; digits=1)) kW" : ""
@@ -77,7 +77,7 @@ function Base.show(io::IO, node::dhLoadNode)
 end
 
 # Producer node (with details)
-function Base.show(io::IO, node::dhProducerNode)
+function Base.show(io::IO, node::ProducerNode)
     summary = "Producer Node, "
     summary *= string_node_common(node.common)
     println(io, summary)
@@ -87,7 +87,7 @@ end
 # nice printing of Edge
 # ------------------------------------------------ #
 
-function Base.show(io::IO, edge::dhEdgeType)
+function Base.show(io::IO, edge::EdgeType)
     print(io, "$(typeof(edge))")
 end
 # Empty edge (minimal)
@@ -95,7 +95,7 @@ function Base.show(io::IO, ::EmptyEdge)
     println(io, "Empty Edge")
 end
 # Pipe edge (with details)
-function Base.show(io::IO, edge::dhPipeEdge)
+function Base.show(io::IO, edge::InsulatedPipe)
     summary = "Pipe Edge, L=$(pipe_length(edge)), D_in=$(inner_diameter(edge)), R_f=$(heat_resistance_forward(edge)), R_b=$(heat_resistance_backward(edge))"
     summary *= !ismissing(edge.mass_flow) ? ", Mass flow: $(round(edge.mass_flow; digits=2)) kg/s" : ""
     summary *= !ismissing(edge.m_rel) ? ", M_flow_rel: $(round(edge.m_rel; digits=2))" : ""

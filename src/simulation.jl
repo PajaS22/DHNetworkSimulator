@@ -65,7 +65,7 @@ Base.show(io::IO, sr::SimulationResults) = print(io, "SimulationResults with $(l
 # SIMULATION FUNCTIONS
 # ------------------------------------------------ #
 
-function run_simulation(network::dhNetwork, sim_time::Union{Vector{Float64}, Vector{DateTime}}, policy::Function; 
+function run_simulation(network::Network, sim_time::Union{Vector{Float64}, Vector{DateTime}}, policy::Function; 
                         T0_f::Float64=60.0, T0_b::Float64=25.0, ambient_temperature::Union{Vector{Float64}, Nothing}=nothing)::SimulationResults
     # simulate dynamics of the DH Network
     # results are y(t) = f(x(t), u(t)), where u(t) are inputs: (mass_flow, input_temperature) for source node
@@ -180,7 +180,7 @@ end
 # Simulation helper methods
 # ------------------------------------------------- #
 
-function set_relative_mass_flows!(nw::dhNetwork)
+function set_relative_mass_flows!(nw::Network)
     # iterate over nodes from leaves to root and set on each edge relative mass flow coefficient m_rel
     # we will do iterative post-order DFS traversal
 
@@ -193,12 +193,12 @@ function set_relative_mass_flows!(nw::dhNetwork)
         if visited
             # SECOND VISIT -> process node
             if(outdegree(nw,node)) == 0 # leaf node
-                @assert nw[node] isa dhLoadNode
+                @assert nw[node] isa LoadNode
                 for parent in inneighbors(nw, node)
                     edge = nw[parent, node]
                     edge.m_rel = nw[node].m_rel # copy m_rel from LoadNode to the edge leading to it
                 end
-            elseif nw[node] isa dhJunctionNode # visiting for second time, so all childer have been processed
+            elseif nw[node] isa JunctionNode # visiting for second time, so all childer have been processed
                 m_rel_sum = sum(nw[node, child].m_rel for child in outneighbors(nw, node))
                 parent = inneighbors(nw, node)[1] # assume there is only one parent
                 nw[parent, node].m_rel = m_rel_sum # set m_rel on the edge leading to this junction
@@ -216,7 +216,7 @@ function set_relative_mass_flows!(nw::dhNetwork)
     end
 end
 
-function set_absolute_mass_flows!(nw::dhNetwork, mass_flow_source::Float64)
+function set_absolute_mass_flows!(nw::Network, mass_flow_source::Float64)
     # set absolute mass flows on edges based on relative mass flow coefficients m_rel and source mass flow
     # when entering junction, mass flow is split according to m_rel coefficients
     # do it by BFS from root to leaves
@@ -245,7 +245,7 @@ function set_absolute_mass_flows!(nw::dhNetwork, mass_flow_source::Float64)
     end
 end
 
-function steady_state_hydronynamics!(nw::dhNetwork, mass_flow_source::Float64)
+function steady_state_hydronynamics!(nw::Network, mass_flow_source::Float64)
     # compute steady-state hydrodynamics of the network
     # assuming that mass flows are already set on edges and nodes
 
@@ -253,11 +253,11 @@ function steady_state_hydronynamics!(nw::dhNetwork, mass_flow_source::Float64)
     set_absolute_mass_flows!(nw, mass_flow_source)
 end
 
-function fill_pipes_with_initial_temperature!(nw::dhNetwork, temperature_f::Float64, temperature_b::Float64)
+function fill_pipes_with_initial_temperature!(nw::Network, temperature_f::Float64, temperature_b::Float64)
     # fill all pipes in the network with water at initial temperature, forward and backward have different T0
     for e in edges(nw.mg)
         edge = nw[e.src, e.dst]
-        if edge isa dhPipeEdge
+        if edge isa InsulatedPipe
             L = pipe_length(edge)  # length in m
             d = inner_diameter(edge)  # inner diameter in m
             V = π * (d/2)^2 * L  # volume in m^3
@@ -270,7 +270,7 @@ function fill_pipes_with_initial_temperature!(nw::dhNetwork, temperature_f::Floa
     end
 end
 
-function time_step_thermal_dynamics_forward!(nw::dhNetwork, Δt::Float64, temperature_source::Float64, ambient_temperature::Union{Float64, Nothing}=nothing)::Dict{String, Plug}
+function time_step_thermal_dynamics_forward!(nw::Network, Δt::Float64, temperature_source::Float64, ambient_temperature::Union{Float64, Nothing}=nothing)::Dict{String, Plug}
     # simulate thermal dynamics of the network for one time step Δt
     # update temperatures in plugs in all pipes based on heat losses and advection
 
@@ -344,7 +344,7 @@ function time_step_thermal_dynamics_forward!(nw::dhNetwork, Δt::Float64, temper
     return output_plugs
 end
 
-function time_step_thermal_dynamics_backward!(nw::dhNetwork, Δt::Float64, incoming_plugs::Dict{String, Plug}, ambient_temperature::Union{Float64, Nothing}=nothing)::Union{Plug, Nothing}
+function time_step_thermal_dynamics_backward!(nw::Network, Δt::Float64, incoming_plugs::Dict{String, Plug}, ambient_temperature::Union{Float64, Nothing}=nothing)::Union{Plug, Nothing}
     # simulate thermal dynamics of the network for one time step Δt
     # fill back in the network the cooled plugs from load nodes and propagate up to the producer node
     # update temperatures in plugs in all pipes based on heat losses and advection
@@ -361,7 +361,7 @@ function time_step_thermal_dynamics_backward!(nw::dhNetwork, Δt::Float64, incom
         if visited
             # SECOND VISIT -> process node
             if (outdegree(nw,node)) == 0 # leaf node
-                @assert nw[node] isa dhLoadNode
+                @assert nw[node] isa LoadNode
                 parent = inneighbors(nw, node)[1] # assume there is only one parent
                 parent_edge = nw[parent, node]
                 push_in_water_plugs_backward!(parent_edge, [incoming_plugs[node]]) # push the cooled plug back into the parent edge
@@ -436,14 +436,14 @@ function collect_exiting_water_plugs!(plugs::Vector{Plug}, mass_flow::Float64, �
     end
     return exited_plugs
 end
-function push_in_water_plugs_forward!(e::dhPipeEdge, plugs::Vector{Plug})
+function push_in_water_plugs_forward!(e::InsulatedPipe, plugs::Vector{Plug})
     # push incoming plugs into the pipe's plug queue
     for p in plugs
         push!(e.plugs_f, p)
     end
     merge_same_temperature_plugs!(e.plugs_f)
 end
-function push_in_water_plugs_backward!(e::dhPipeEdge, plugs::Vector{Plug})
+function push_in_water_plugs_backward!(e::InsulatedPipe, plugs::Vector{Plug})
     # push incoming plugs into the pipe's plug queue
     for p in plugs
         push!(e.plugs_b, p)
@@ -483,20 +483,20 @@ function combine_plugs(plugs::Vector{Plug})::Plug
     return Plug(avg_temp, total_mass)
 end
 
-function set_load_params!(nw::dhNetwork, load_label::String, m_rel::Float64)
+function set_load_params!(nw::Network, load_label::String, m_rel::Float64)
     # set parameters of a load node, for now just relative mass flow coefficient
-    @assert nw[load_label] isa dhLoadNode
+    @assert nw[load_label] isa LoadNode
     nw[load_label].m_rel = m_rel
 end
 
-function set_load_params!(nw::dhNetwork, load_params::Dict{String, Float64})
+function set_load_params!(nw::Network, load_params::Dict{String, Float64})
     # set parameters of multiple load nodes
     for (load_label, m_rel) in load_params
         set_load_params!(nw, load_label, m_rel)
     end
 end
 
-function heat_loss_forward!(e::dhPipeEdge, T_a::Float64, Δt::Float64)
+function heat_loss_forward!(e::InsulatedPipe, T_a::Float64, Δt::Float64)
     # compute heat loss in the pipe and cool the plugs accordingly
     ρ = WATER_DENSITY  # density in kg/m^3
     cₚ = WATER_SPECIFIC_HEAT  # specific heat capacity in J/(kg·K)
@@ -507,17 +507,17 @@ function heat_loss_forward!(e::dhPipeEdge, T_a::Float64, Δt::Float64)
     end
 end
 
-function heat_loss_forward!(nw::dhNetwork, ambient_temperature::Float64, Δt::Float64)
+function heat_loss_forward!(nw::Network, ambient_temperature::Float64, Δt::Float64)
     # compute heat loss in all pipes of the network and cool the plugs accordingly
     for e in edges(nw.mg)
         edge = nw[e.src, e.dst]
-        if edge isa dhPipeEdge
+        if edge isa InsulatedPipe
             heat_loss_forward!(edge, ambient_temperature, Δt)
         end
     end
 end
 
-function heat_loss_backward!(e::dhPipeEdge, T_a::Float64, Δt::Float64)
+function heat_loss_backward!(e::InsulatedPipe, T_a::Float64, Δt::Float64)
     # compute heat loss in the pipe and cool the plugs accordingly
     ρ = WATER_DENSITY  # density in kg/m^3
     cₚ = WATER_SPECIFIC_HEAT  # specific heat capacity in J/(kg·K)
@@ -528,17 +528,17 @@ function heat_loss_backward!(e::dhPipeEdge, T_a::Float64, Δt::Float64)
     end
 end
 
-function heat_loss_backward!(nw::dhNetwork, ambient_temperature::Float64, Δt::Float64)
+function heat_loss_backward!(nw::Network, ambient_temperature::Float64, Δt::Float64)
     # compute heat loss in all pipes of the network and cool the plugs accordingly
     for e in edges(nw.mg)
         edge = nw[e.src, e.dst]
-        if edge isa dhPipeEdge
+        if edge isa InsulatedPipe
             heat_loss_backward!(edge, ambient_temperature, Δt)
         end
     end
 end
 
-function power_consumption(node::dhLoadNode, Tₐ::Float64)::Float64
+function power_consumption(node::LoadNode, Tₐ::Float64)::Float64
     # compute power consumption of a load node based on outdoor temperature and load coefficients
     # power consumtion is polynomial function of outdoor temperature: P = a + b*Tₐ + c*Tₐ^2 + ...
     T₀ = -node.load[2] / (2*node.load[3]) # minimal power consumption at this outdoor temperature

@@ -41,19 +41,11 @@ using DHNetworkSimulator
 
 ## Quick start
 
-The easiest way to get a feel for the API is to run an example script.
+The easiest way to get a feel for the API is to run one of the example scripts.
+- `scripts/basic_network.jl`
+- `scripts/bigger_network.jl`
 
-From the repository root:
 
-```julia
-include("scripts/basic_network.jl")
-```
-
-or
-
-```julia
-include("scripts/bigger_network.jl")
-```
 
 ### Minimal example (policy-driven simulation)
 
@@ -62,7 +54,7 @@ include("scripts/bigger_network.jl")
 ```julia
 using DHNetworkSimulator
 
-network = dhNetwork()
+network = Network()
 network["producer"] = ProducerNode((0.0, 0.0))
 
 # ... add junctions/loads/pipes here ...

@@ -11,11 +11,11 @@ using Plots
 using Dates
 using TSFrames
 
-# Pkg.test("DHNetworkSimulator")            # run tests on DHNetworkSimulator package to make sure everything is working correctly
+Pkg.test("DHNetworkSimulator")            # run tests on DHNetworkSimulator package to make sure everything is working correctly
 
 const DHN = DHNetworkSimulator
 
-network = dhNetwork()
+network = Network()
 junction1_pos = (100.0, 0.0)
 junction2_pos = (250.0, 0.0)
 network["producer"] = ProducerNode((0.0, 0.0))

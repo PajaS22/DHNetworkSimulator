@@ -1,9 +1,9 @@
 # -----------------------------
-# CONSTRUCTORS FOR dhNetwork
+# CONSTRUCTORS FOR Network
 # -----------------------------
 
 # create a network from a SimpleDiGraph
-function dhNetwork(graph::SimpleDiGraph)
+function Network(graph::SimpleDiGraph)
     # check that the graph is a tree
     if is_cyclic(graph) || !is_connected(graph)
         error("The input graph must be a tree (connected and acyclic).")
@@ -17,8 +17,8 @@ function dhNetwork(graph::SimpleDiGraph)
     mg = MetaGraph(
         DiGraph();  # underlying graph structure
         label_type=String,
-        vertex_data_type=dhNodeType,
-        edge_data_type=dhEdgeType
+        vertex_data_type=NodeType,
+        edge_data_type=EdgeType
     )
     default_labels = string.(1:nv(graph))
     for v in vertices(graph)
@@ -28,10 +28,10 @@ function dhNetwork(graph::SimpleDiGraph)
         mg[default_labels[src(e)], default_labels[dst(e)]] = EmptyEdge()
     end
     
-    return dhNetwork{Int}(mg, nothing, Set{String}())
+    return Network{Int}(mg, nothing, Set{String}())
 end
 
-function fill_physical_params!(network::dhNetwork, pipe_params::Dict{Tuple{Int,Int}, PipeParams})
+function fill_physical_params!(network::Network, pipe_params::Dict{Tuple{Int,Int}, PipeParams})
     for (u, v) in keys(pipe_params)
         if has_edge(network, u, v)
             network[u, v] = InsulatedPipe(pipe_params[(u, v)])
@@ -41,7 +41,7 @@ function fill_physical_params!(network::dhNetwork, pipe_params::Dict{Tuple{Int,I
     end
 end
 
-function fill_node_positions!(network::dhNetwork, node_positions::Dict{String, Tuple{Float64, Float64}})
+function fill_node_positions!(network::Network, node_positions::Dict{String, Tuple{Float64, Float64}})
     for (label, pos) in node_positions
         if has_label(network, label)
             node_data = network[label]
@@ -55,7 +55,7 @@ function fill_node_positions!(network::dhNetwork, node_positions::Dict{String, T
     end
 end
 
-function name_nodes!(network::dhNetwork, labels::Vector{String})
+function name_nodes!(network::Network, labels::Vector{String})
     # careful! The internal graph cannot rename the labels, so we have to remove a node and add it back again with the new label
     # tricky part is the removal, if we remove a node v, all the nodes v+k are reindexed so that the total |V| is reduced by 1
     # and the indexing doesnt contain gaps. The only consistent way to keep track of the nodes is by labels, they stay the same during removal
@@ -69,7 +69,7 @@ function name_nodes!(network::dhNetwork, labels::Vector{String})
     end
 end
 
-function identify_producer_and_loads!(network::dhNetwork)
+function identify_producer_and_loads!(network::Network)
     # identify producer node (source) and load nodes (sinks)
     for nl in all_labels(network)
         if outdegree(network, nl) > 0 && indegree(network, nl) == 0
@@ -89,7 +89,7 @@ function identify_producer_and_loads!(network::dhNetwork)
     end
 end
 
-function fill_load_specs!(network::dhNetwork, pwr_coefs::Dict{String, NTuple{3, Float64}}, m_r::Dict{String, Float64})
+function fill_load_specs!(network::Network, pwr_coefs::Dict{String, NTuple{3, Float64}}, m_r::Dict{String, Float64})
     for label in network.load_labels
         if haskey(pwr_coefs, label)
             set_load_pwr_coefs!(network, label, pwr_coefs[label])

@@ -3,9 +3,9 @@
 # Nodes
 
 ```@docs
-dhNodeCommon
-dhJunctionNode
-dhLoadNode
-dhProducerNode
+NodeCommon
+JunctionNode
+LoadNode
+ProducerNode
 EmptyNode
 ```
