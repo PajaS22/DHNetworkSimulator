@@ -1,13 +1,13 @@
-@testset "dhNetwork" begin
+@testset "Network" begin
     @testset "creation" begin
-        nw = dhNetwork()
+        nw = Network()
         @test nv(nw) == 0
         @test ne(nw) == 0
         @test isnothing(nw.producer_label)
         @test isempty(nw.load_labels)
     end
     @testset "adding nodes and edges" begin
-        nw = dhNetwork()
+        nw = Network()
         nw["node1"] = EmptyNode()
         nw["node2"] = EmptyNode()
         @test nv(nw) == 2
@@ -17,7 +17,7 @@
         @test ne(nw) == 1
     end
     @testset "indexing" begin
-        nw = dhNetwork()
+        nw = Network()
         nw["node1"] = EmptyNode()
         nw["node2"] = EmptyNode()
         nw["node1", "node2"] = EmptyEdge()
@@ -33,7 +33,7 @@
         @test e === nw["node1", "node2"]
     end
     @testset "removing nodes" begin
-        nw = dhNetwork()
+        nw = Network()
         nw["node1"] = EmptyNode()
         nw["node2"] = EmptyNode()
         nw["node1", "node2"] = EmptyEdge()
@@ -43,7 +43,7 @@
         @test ne(nw) == 0
         @test !has_label(nw, "node1")
 
-        nw1 = dhNetwork()
+        nw1 = Network()
         nw1["node1"] = EmptyNode()
         nw1["node2"] = EmptyNode()
         rem_node!(nw1, index_for(nw1, "node2"))
@@ -51,7 +51,7 @@
         @test !has_label(nw1, "node2")
     end
     @testset "vertices_data and edges_data" begin
-        nw = dhNetwork()
+        nw = Network()
         nw["node1"] = EmptyNode()
         nw["node2"] = EmptyNode()
         nw["node1", "node2"] = EmptyEdge()
@@ -63,7 +63,7 @@
         @test length(edata) == 1
     end
     @testset "neighbors and degree functions" begin
-        nw = dhNetwork()
+        nw = Network()
         nw["node1"] = EmptyNode()
         nw["node2"] = EmptyNode()
         nw["node3"] = EmptyNode()
@@ -85,7 +85,7 @@
     end
     @testset "load labels" begin
         # keep track of load node ids when adding, removing and replacing load nodes
-        nw = dhNetwork()
+        nw = Network()
         nw["load1"] = LoadNode()
         nw["load2"] = LoadNode()
         nw["load3"] = LoadNode()
@@ -116,7 +116,7 @@
     end
     @testset "producer label" begin
         # keep track of producer node id when adding, removing and replacing producer node
-        nw = dhNetwork()
+        nw = Network()
         @test isnothing(nw.producer_label)
 
         nw["producer"] = ProducerNode()

@@ -2,26 +2,68 @@
 # TYPE DEFINITIONS
 # ------------------------------------------------ #
 
-# abstract types for DH Network Nodes and Edges
+
+"Abstract type for all node types in the DH network (e.g., junctions, loads, producers)."
 abstract type NodeType end
+
+"Abstract type for all edge types in the DH network (only one pipe for now)."
 abstract type EdgeType end
 
-# Common Node Data (shared by all node types)
-"Common data for all node types in the DH network (e.g., junctions, loads, producers)"
+
+"""Common data for all node types in the DH network (e.g., junctions, loads, producers)
+
+    mutable struct NodeCommon
+        info::String
+        position::Union{Missing, Tuple{Float64, Float64}}   # (x, y) coordinates
+        mass_flow::Union{Missing, Float64}                  # [kg/s]
+    end
+
+    # Constructors
+    - `NodeCommon(info::String)`
+    - `NodeCommon(info::String, position::Tuple{Float64, Float64})`
+"""
 mutable struct NodeCommon
     info::String
-    position::Union{Missing, Tuple{Float64, Float64}}  # (x, y) coordinates
-    mass_flow::Union{Missing, Float64}      # [kg/s]
+    position::Union{Missing, Tuple{Float64, Float64}}   # (x, y) coordinates
+    mass_flow::Union{Missing, Float64}                  # [kg/s]
 end
 
-# Junction Node: connection point with no heat consumption/production
-"DH network node representing a junction, where pipes can connect but no heat is produced or consumed."
+
+"""DH network node representing a junction, where pipes can connect but no heat is produced or consumed.
+
+    struct JunctionNode <: NodeType
+        common::NodeCommon
+    end
+
+    # Constructors
+    - `JunctionNode(info::String)`
+    - `JunctionNode(info::String, position::Tuple{Float64, Float64})`
+    - `JunctionNode(position::Tuple{Float64, Float64})`
+    - `JunctionNode()`
+"""
 struct JunctionNode <: NodeType
     common::NodeCommon
 end
 
 # Load Node: heat consumer
-"DH network node representing a load, which consumes heat. The load field defines quadratic function of power consumption P(Tₐ) = p₀ + p₁*Tₐ + p₂*Tₐ²."
+"""DH network node representing a load, which consumes heat.
+
+The load field defines quadratic function of power consumption P(Tₐ) = p₀ + p₁*Tₐ + p₂*Tₐ².
+
+    mutable struct LoadNode <: NodeType
+        common::NodeCommon
+        load::Union{Missing, NTuple{3, Float64}}     # Heat load function in kW, P(Tₐ) = p₀ + p₁*Tₐ + p₂*Tₐ²
+        m_rel::Union{Missing, Float64}               # Relative mass flow coefficient (for branching nodes)
+    end
+
+    # Constructors
+    - `LoadNode(info::String; load=DEFAULT_LOAD)`: Creates a LoadNode with the specified info string and an optional load function (default is a typical load curve).
+    - `LoadNode(info::String, position::Tuple{Float64, Float64}; load=DEFAULT_LOAD)`
+    - `LoadNode(info::String, position::Tuple{Float64, Float64}, load::NTuple{3, Float64})`
+    - `LoadNode(info::String, position::Tuple{Float64, Float64}, m_rel::Float64; load=DEFAULT_LOAD)`
+    - `LoadNode(position::Tuple{Float64, Float64}; load=DEFAULT_LOAD)`
+    - `LoadNode(; load=DEFAULT_LOAD)`
+"""
 mutable struct LoadNode <: NodeType
     common::NodeCommon
     load::Union{Missing, NTuple{3, Float64}}     # Heat load function in kW, P(Tₐ) = p₀ + p₁*Tₐ + p₂*Tₐ²
@@ -29,7 +71,20 @@ mutable struct LoadNode <: NodeType
 end
 
 # Producer Node: heat producer
-"DH network node representing a producer, which heats water. There may be only one producer in the network, and it is identified by its label (producer_label field in Network)."
+"""DH network node representing a producer, which heats water.
+
+There may be only one producer in the network, and it is identified by its label (producer_label field in Network).
+
+    struct ProducerNode <: NodeType
+        common::NodeCommon
+    end
+
+    # Constructors
+    - `ProducerNode(info::String)`
+    - `ProducerNode(info::String, position::Tuple{Float64, Float64})`
+    - `ProducerNode(position::Tuple{Float64, Float64})`
+    - `ProducerNode()`
+"""
 struct ProducerNode <: NodeType
     common::NodeCommon
 end
@@ -43,11 +98,33 @@ struct EmptyNode <: NodeType end
 # ------------------------------------------------ #
 # we will model pipe using "plug" method
 
+"""
+Single plug of water in the pipe, characterized by its temperature and mass.
+
+    mutable struct Plug
+        T::Float64  # Temperature at the plug [°C]
+        m::Float64  # mass of the plug [kg]
+    end
+"""
 mutable struct Plug
     T::Float64  # Temperature at the plug [°C]
     m::Float64  # mass of the plug [kg]
 end
 
+"""
+Physical parameters of a pipe, which are constant during the simulation.
+
+    struct PipeParams                       # unchanging physical parameters of the pipe
+        length::Float64                     # Length of the pipe [m]
+        inner_diameter::Float64             # Inner diameter [m]
+        heat_resistance_forward::Float64    # Thermal resistance [m*K/W]
+        heat_resistance_backward::Float64   # Thermal resistance [m*K/W]
+    end
+
+    # Constructors
+    - `PipeParams(length::Float64, inner_diameter::Float64, heat_resistance_forward::Float64, heat_resistance_backward::Float64)`
+    - `PipeParams(length::Float64, inner_diameter::Float64)`: uses default heat resistance values based on typical insulation properties.
+"""
 struct PipeParams                       # unchanging physical parameters of the pipe
     length::Float64                     # Length of the pipe [m]
     inner_diameter::Float64             # Inner diameter [m]
@@ -55,7 +132,25 @@ struct PipeParams                       # unchanging physical parameters of the 
     heat_resistance_backward::Float64   # Thermal resistance [m*K/W]
 end
 
-# Pipe Edge: represents a pipe in the network
+# InsulatedPipe: represents a pipe in the network
+"""
+DH network edge representing an insulated pipe, which transports water between nodes.
+
+    mutable struct InsulatedPipe <: EdgeType
+        info::String
+        physical_params::PipeParams
+        mass_flow::Union{Missing, Float64}  # Mass flow in [kg/s]
+        m_rel::Union{Missing, Float64}      # Relative mass flow coefficient (for branching pipes)
+        plugs_f::Vector{Plug}               # Queue of plugs in the pipe (forward direction)
+        plugs_b::Vector{Plug}               # Queue of plugs in the pipe (backward direction)
+    end
+
+    # Constructors
+    - `InsulatedPipe(info::String; length::Float64, inner_diameter::Float64, heat_resistance_forward::Float64, heat_resistance_backward::Float64)`
+    - `InsulatedPipe(info::String, params::PipeParams)`
+    - `InsulatedPipe(params::PipeParams)`
+    - `InsulatedPipe(length::Real)`
+"""
 mutable struct InsulatedPipe <: EdgeType
     info::String
     physical_params::PipeParams
@@ -65,12 +160,30 @@ mutable struct InsulatedPipe <: EdgeType
     plugs_b::Vector{Plug}               # Queue of plugs in the pipe (backward direction)
 end
 
+"Empty edge type used for initialization and placeholder purposes in the DH network."
 struct EmptyEdge <: EdgeType end
 
 # ------------------------------------------------- #
 # DH NETWORK TYPE
 # ------------------------------------------------- #
 
+"""
+The main data structure representing a district heating network, which consists of a MetaGraph containing
+nodes and edges with associated data, as well as labels for the producer and consumer nodes.
+
+    mutable struct Network{T<:Integer} <: AbstractGraph{T}
+        mg::MetaGraph                               # MetaGraph from MetaGraphs.jl, it contains the network 
+                                                      structure and node and edge data
+        producer_label::Union{Nothing, String}      # Label of the producer node
+        load_labels::Set{String}                    # Labels of the consumer nodes
+    end
+
+    # Constructors
+    - `Network()`: Creates an empty DH network with no nodes or edges.
+    - `Network(g::DiGraph)`: Creates a DH network from an existing directed graph structure.
+                             Nodes and edges are initialized with EmptyNode and EmptyEdge data.
+
+"""
 mutable struct Network{T<:Integer} <: AbstractGraph{T}
     mg::MetaGraph                               # MetaGraph from MetaGraphs.jl, it contains the network structure and node and edge data
     producer_label::Union{Nothing, String}      # Label of the producer node
