@@ -1,0 +1,13 @@
+- vygenerovat město se známými průběhy ze všech míst
+    - použiji na to LOK2 graf
+    - přidám různé typy LOADs, které budou odebírat vždy stejný poměr vstupního proudu
+    - 1. použiji menší město (pouze LOK2 subgraph)
+    - 2. zkusím to na plné velké LOK2 město
+- dhNetwork by mělo přijítmat při konstrukci
+    - Simple graph nebo Directed graph, žádný metagraph (ten bude použit pro skladování parametrů)
+    - fyzické parametry trubek indexované počátečním a koncovým vrcholem
+- create a dhNetworkVisualizer, which will be returned on visualize and 
+    will keep all the necessary visualize related data inside it, not in dh network
+- po konstrukci by mělo být možné nafitovat parametry vrcholů (flow, load), z poskytnutých dat
+- počítat kromě teploty a flow i time delay
+-
