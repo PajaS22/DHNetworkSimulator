@@ -1,9 +1,5 @@
-# Types
+# Network nodes and edges
 
-# Network
-```@docs
-Network
-```
 
 # Nodes
 

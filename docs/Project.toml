@@ -1,11 +1,8 @@
-name = "docs"
-uuid = "94204c8a-c272-4af5-a655-485d38b7178e"
-version = "0.1.0"
-authors = ["Pavel Svoboda <pav.svoboda2000@gmail.com>"]
-
 [deps]
 DHNetworkSimulator = "2eb6275f-2a99-494f-9a8b-24b61cb8f4b7"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+Graphs = "86223c79-3864-5bf0-83f7-82e725a168b6"
 
 [compat]
 Documenter = "1.16.1"
+Graphs = "1.13.4"

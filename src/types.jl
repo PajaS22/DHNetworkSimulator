@@ -167,7 +167,30 @@ struct EmptyEdge <: EdgeType end
 # DH NETWORK TYPE
 # ------------------------------------------------- #
 
-"Mappings to inneghbors and outneighbors for efficient access during simulation, stored in the Network struct."
+"""Mappings to inneghbors and outneighbors for efficient access during simulation, stored in the Network struct.
+
+    When calling functions `outneighbors(nw, label)` or `inneighbors(nw, label)`, 
+    there is no need to scan through the graph and collect neighbors, 
+    instead we can directly access the pre-computed neighbor lists in the dictionaries.
+    This significantly lowers the number of allocations during simulation, because there
+    is a lot of places where we need to access neighbors of a node.
+
+    The network is static during the simulation, so we can compute these neighbor lists once
+    before the simulation starts and then reuse them.
+
+    mutable struct NeighborDicts
+        outneighbors::Dict{String, Vector{String}}       # mapping nodes to outneighbors for efficient access in simulation
+        inneighbors::Dict{String, Vector{String}}        # mapping nodes to inneighbors for efficient access in simulation
+        need_rebuild::Bool                               # flag to indicate if neighbor dicts need to be rebuilt before simulation
+    end
+
+    flag `need_rebuild` is used to indicate when the neighbor dicts need to be updated
+                        (e.g., after adding/removing nodes or edges), so that we can avoid
+                        unnecessary rebuilding during multiple modifications.
+
+    # Constructor
+    - `NeighborDicts()`: Creates an instance of NeighborDicts with empty dictionaries and the need_rebuild flag set to true.
+"""
 mutable struct NeighborDicts
     outneighbors::Dict{String, Vector{String}}       # mapping nodes to outneighbors for efficient access in simulation
     inneighbors::Dict{String, Vector{String}}        # mapping nodes to inneighbors for efficient access in simulation
@@ -177,9 +200,6 @@ NeighborDicts() = NeighborDicts(Dict{String, Vector{String}}(), Dict{String, Vec
 
 
 """
-The main data structure representing a district heating network, which consists of a MetaGraph containing
-nodes and edges with associated data, as well as labels for the producer and consumer nodes.
-
     mutable struct Network{T<:Integer} <: AbstractGraph{T}
         mg::MetaGraph                               # MetaGraph from MetaGraphs.jl, it contains the network 
                                                       structure and node and edge data
@@ -188,9 +208,15 @@ nodes and edges with associated data, as well as labels for the producer and con
         neighbor_dicts::NeighborDicts               # Mappings to inneghbors and outneighbors for efficient access during simulation
     end
 
+    # Fields
+    - `mg`: a MetaGraphsNext `MetaGraph` that contains the directed topology and stores node/edge data.
+    - `producer_label`: label of the single producer node (or `nothing` if not yet set).
+    - `load_labels`: a set of labels for load nodes.
+    - `neighbor_dicts`: cached neighbor lists used to reduce allocations during simulation.
+
     # Constructors
     - `Network()`: Creates an empty DH network with no nodes or edges.
-    - `Network(g::DiGraph)`: Creates a DH network from an existing directed graph structure.
+    - `Network(g::DiGraph)`: Creates a DH network from an existing directed graph structure ('Graphs.jl').
                              Nodes and edges are initialized with EmptyNode and EmptyEdge data.
 
 """

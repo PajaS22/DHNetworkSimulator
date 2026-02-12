@@ -1,6 +1,3 @@
-name = "scripts"
-version = "0.1.0"
-authors = ["Pavel Svoboda <pav.svoboda2000@gmail.com>"]
 
 [deps]
 DHNetworkSimulator = "2eb6275f-2a99-494f-9a8b-24b61cb8f4b7"

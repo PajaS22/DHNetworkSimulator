@@ -19,7 +19,7 @@ include("types.jl")
 export NodeType, EdgeType, NodeCommon
 export JunctionNode, LoadNode, ProducerNode, EmptyNode
 export InsulatedPipe, EmptyEdge, Plug, PipeParams
-export Network
+export Network, NeighborDicts
 export EmptyNode, EmptyEdge
 export InsulatedPipe, JunctionNode, LoadNode, ProducerNode
 
