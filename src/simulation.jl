@@ -1,6 +1,51 @@
 # ------------------------------------------------ #
 # Simulation results structure
 # ------------------------------------------------ #
+"""Results of a simulation run.
+
+`SimulationResults` stores the time series produced by [`run_simulation`](@ref).
+
+```julia
+struct SimulationResults
+        time::Union{Vector{Float64}, Vector{DateTime}}
+        mass_flow_load::Matrix{Float64}
+        mass_flow_producer::Vector{Float64}
+        T_load_in::Matrix{Float64}
+        T_load_out::Matrix{Float64}
+        T_producer_in::Vector{Float64}
+        T_producer_out::Vector{Float64}
+        power_load::Matrix{Float64}
+        power_producer::Vector{Float64}
+        load_labels::Dict{String, Int}
+end
+```
+
+# Fields
+- `time`: simulation time vector.
+    - `Vector{Float64}`: time in seconds.
+    - `Vector{DateTime}`: absolute timestamps.
+- `mass_flow_load`: load mass flows in kg/s. Size `N × nloads`.
+- `mass_flow_producer`: producer mass flow in kg/s. Length `N`.
+- `T_load_in`: temperature entering each load (supply side) in °C. Size `N × nloads`.
+- `T_load_out`: temperature leaving each load (return side) in °C. Size `N × nloads`.
+- `T_producer_in`: return temperature entering the producer in °C. Length `N`.
+- `T_producer_out`: supply temperature leaving the producer in °C. Length `N`.
+- `power_load`: load power consumption in kW. Size `N × nloads`.
+- `power_producer`: producer power output in MW (computed from mass flow and ΔT). Length `N-1`.
+- `load_labels`: mapping from load label to column index used in the `*_load` matrices.
+
+# Indexing
+Convenience accessors are provided:
+
+- `sr[:time]` returns the time vector.
+- `sr[:load_labels]` returns the load labels.
+- `sr[:load_labels_dict]` returns the label→column dictionary.
+- `sr["L1", :T_load_in]` returns the time series for that load L1 (a vector).
+
+# Notes
+- All matrices are organized as `(time step, load index)`.
+- `power_producer` has length `N-1` because the producer heats the water that entered in in *previous!* time step.
+"""
 struct SimulationResults
     time::Union{Vector{Float64}, Vector{DateTime}}  # time vector
     mass_flow_load::Matrix{Float64}         # mass flows at load nodes (rows: time steps, columns: load nodes)
@@ -21,6 +66,30 @@ end
 # ------------------------------------------------ #
 # Producer (power plant) output
 # ------------------------------------------------ #
+"""Control input returned by a simulation policy.
+
+`ProducerOutput` represents the producer setpoints for one time step.
+
+```julia
+struct ProducerOutput
+    mass_flow::Float64
+    temperature::Float64
+end
+```
+
+# Fields
+- `mass_flow`: total mass flow injected into the network in kg/s.
+- `temperature`: producer outlet (supply) temperature in °C.
+
+# Usage
+The `policy` passed to [`run_simulation`](@ref) must return a `ProducerOutput`:
+
+```julia
+function policy(t, Tₐ, T_back)
+    return ProducerOutput(mass_flow=15.0, temperature=90.0)
+end
+```
+"""
 struct ProducerOutput
     mass_flow::Float64
     temperature::Float64
@@ -65,6 +134,50 @@ Base.show(io::IO, sr::SimulationResults) = print(io, "SimulationResults with $(l
 # SIMULATION FUNCTIONS
 # ------------------------------------------------ #
 
+"""Run a quasi-dynamic simulation of a district heating network.
+
+```julia
+run_simulation(network, sim_time, policy; T0_f=60.0, T0_b=25.0, ambient_temperature=nothing)
+```
+
+This is the main entry point for time stepping.
+
+REPEAT for N time steps:
+1. computes a steady-state hydraulic solution (mass flow distribution),
+2. advances thermal dynamics using the plug-flow method:
+     - forward/supply advection producer → loads,
+     - heat consumption at loads,
+     - backward/return advection loads → producer,
+     - heat losses to ambient.
+
+See [Plug method](@ref) for the underlying model.
+
+
+# Output
+- `SimulationResults` struct containing time series of temperatures, flows, and powers for all nodes and edges.
+
+# Arguments
+- `network::Network`: prepared network (producer/load nodes identified, pipes attached).
+- `sim_time`: equally spaced time vector.
+    - `Vector{Float64}`: time in seconds.
+    - `Vector{DateTime}`: timestamps (Δt is interpreted in seconds).
+- `policy::Function`: callback returning `ProducerOutput`.
+    - Signature: `policy(t, Tₐ, T_back)::ProducerOutput`
+    - `Tₐ` is ambient temperature at time `t` or `nothing`.
+    - `T_back` is the return temperature entering the producer (in previous time step `k-1`).
+
+# Keyword Arguments
+- `T0_f`: initial temperature forward part of the network (producer → loads) (°C).
+- `T0_b`: initial temperature in backward part of the network (loads → producer) (°C).
+- `ambient_temperature`: optional `Vector{Float64}` of ambient (outdoor/atmospheric) temperatures (°C), length must match `sim_time`.
+
+# Returns
+- `SimulationResults`: time series of temperatures, flows, and powers.
+
+# Notes
+- The network structure is validated once at the start via `check_network!`.
+- Time steps must be equally spaced.
+"""
 function run_simulation(network::Network, sim_time::Union{Vector{Float64}, Vector{DateTime}}, policy::Function; 
                         T0_f::Float64=60.0, T0_b::Float64=25.0, ambient_temperature::Union{Vector{Float64}, Nothing}=nothing)::SimulationResults
     # simulate dynamics of the DH Network

@@ -10,14 +10,14 @@ Each pipe contains a queue of discrete **plugs of water**, where every plug has:
 
 Plugs advect through pipes according to the current mass flows, exchange heat with the environment via a simple heat-loss model, and (optionally) lose heat at loads according to the load power demand.
 
-The implementation lives primarily in:
+In this example image we can see, that with variable flow and temperature, in each period there may be multiple different sized plugs of different temperatures exiting a pipe.
+![plug_flow_example](plug_method.png)
+*Figure: Explanation of plug method [doc. Ing. Zdeněk Hurák, Ph.D., CTU]*
 
-- `src/types.jl` (type `Plug` and pipe storage `plugs_f` / `plugs_b`)
-- `src/simulation.jl` (`time_step_thermal_dynamics_forward!`, `time_step_thermal_dynamics_backward!`)
 
-## Why plugs?
+## Quasi-dynamic assumption
 
-The approach is based on a **quasi-dynamic** assumption:
+The approach of solving our thermodynamic problem of flow is based on a **quasi-dynamic** assumption:
 
 - **Hydraulics** (mass flow distribution) is assumed to reach steady state “instantaneously” compared to
 - **Thermal dynamics**, which are dominated by advection (transport of hot water) and slow heat losses.

@@ -58,11 +58,10 @@ end
 
 results = run_simulation(network, t, policy; T0_f=75.0, T0_b=60.0)
 
-plot_simulation_results(results, :T_load_in)    # plot only temperatures
-plot_simulation_results(results, ["load1", "load2", "load3", "load4"], :T_load_out)  # plot only mass flows
-producer_plot = plot_simulation_results(results, :T_producer_in; label="in")  # plot mass flows for all loads
-plot_simulation_results(producer_plot, results, :T_producer_out; label="out")
-
+plot_simulation_results(results, :T_load_in; title="Load Inlet Temperatures")    # plot only temperatures
+plot_simulation_results(results, ["load1", "load2", "load3", "load4"], :T_load_out; title="Load Outlet Temperatures")  # plot only mass flows
+producer_plot = plot_simulation_results(results, :T_producer_in; label="in", title="Producer Temperatures")  # plot mass flows for all loads
+plot_simulation_results(producer_plot, results, :T_producer_out; label="out", title="Producer Temperatures")
 
 # ---------------------------------------------------------------------
 # TEST SIMULATION 2 - sinusoidal temperature and mass flow

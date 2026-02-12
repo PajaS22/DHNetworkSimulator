@@ -1,4 +1,49 @@
+"""Plot time series from [`SimulationResults`](@ref).
 
+`plot_simulation_results` is a small helper around Plots.jl that plots one physical variable either:
+
+- for selected **load** labels, or
+- for the **producer** (for producer-only variables).
+
+```julia
+plot_simulation_results(sr::SimulationResults, physical_var::Symbol; kwargs...)
+plot_simulation_results(sr::SimulationResults, labels::Vector{String}, physical_var::Symbol; kwargs...)
+plot_simulation_results(plot::Plots.Plot{Plots.GRBackend}, sr::SimulationResults, physical_var::Symbol; kwargs...)
+plot_simulation_results(plot::Plots.Plot{Plots.GRBackend}, sr::SimulationResults, labels::Vector{String}, physical_var::Symbol; kwargs...)
+```
+
+# Arguments
+- `sr::SimulationResults`: simulation output from [`run_simulation`](@ref).
+- `labels::Vector{String}`: load labels to include in plot (only used for load variables),
+                            if not provided, all load labels are plotted.
+- `physical_var::Symbol`: what values to plot.
+    Supported options are:
+    - temperatures: `:T_load_in`, `:T_load_out`, `:T_producer_in`, `:T_producer_out`
+    - mass flows: `:mass_flow_load`, `:mass_flow_producer`
+    - powers: `:power_load`, `:power_producer`
+- `plot::Plots.Plot{Plots.GRBackend}`: an existing plot to add lines to,
+                                       if not provided, a new plot is created.
+
+# Keyword Arguments
+- `kwargs...`: forwarded to `Plots.plot!` (e.g. `linewidth`, `color`, `legend`, ...).
+
+# Returns
+- The `Plots.Plot` object.
+
+# Notes
+- If `sr[:time]` is `Vector{Float64}`, the x-axis is converted from seconds to minutes.
+- `:power_producer` has length `N-1` and is plotted against `time[1:end-1]`.
+- When plotting producer variables, the line style defaults to dashed (unless you override `linestyle`).
+
+# Examples
+```julia
+sr = run_simulation(network, t, policy)
+
+plot_simulation_results(sr, :T_load_in)
+plot_simulation_results(sr, ["L1", "L2"], :mass_flow_load)
+plot_simulation_results(sr, :power_producer)
+```
+"""
 function plot_simulation_results(plot::Plots.Plot{Plots.GRBackend}, sr::SimulationResults, labels::Vector{String}, physical_var::Symbol; kwargs...)
     # Plot results for specified load node labels and physical variable
     # options for physical_var: :T_load_in, :T_load_out, :mass_flow, :power

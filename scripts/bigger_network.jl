@@ -173,7 +173,6 @@ t =  index(Tₐ) # get time vector DateTime format
 producer_power = 4_000_000.0 # 4 MW
 c_water = 4186.0 # J/(kg*K)
 function policy(t, Tₐ, T_back)
-    t_sec = Dates.value.(t)/1000 # convert from milliseconds to seconds
     mass_flow = 80.0
     # P = (T2-T1)*mass_flow*WATER_SPECIFIC_HEAT
     temp = producer_power / (mass_flow * c_water) + T_back
@@ -183,8 +182,8 @@ end
 results = run_simulation(network, t, policy; T0_f=75.0, T0_b=70.0, ambient_temperature=Tₐ_vec)
 
 # -----------------------------------------------------------------
-plot_all = plot_simulation_results(results, :T_load_out)   # add load output temperatures to the same plot
-plot_simulation_results(plot_all, results, :T_producer_in; lw=2, c=:red)    # plot only temperatures
+plot_all = plot_simulation_results(results, :T_load_out; title="Return temperatures on load side")   # add load output temperatures to the same plot
+plot_simulation_results(plot_all, results, :T_producer_in; lw=2, c=:red, title="Return temperatures on load side")    # plot only temperatures
 
 # ---------------------------------------------------------------------
 plot_power = plot_simulation_results(results, :power_load)   # add load output temperatures to the same plot
@@ -217,6 +216,7 @@ results = run_simulation(network, t, policy; T0_f=75.0, T0_b=70.0, ambient_tempe
 
 # ----------------------------
 # example of plotting results:
+plot_simulation_results(results, :T_producer_out; title="Producer output temperature", linestyle=:solid)   # add load output temperatures to the same plot
 plot_vs1 = plot_simulation_results(results, ["M2_VS_1"], :T_load_in; label="T_in_VS1", title="Load Temperatures comparison")   # plot only load output temperatures
 plot_simulation_results(plot_vs1, results, ["M2_VS_1"], :T_load_out; label="T_out_VS1", title="Load Temperatures comparison")   # add load output temperatures to the same plot
 plot_simulation_results(plot_vs1, results, :T_producer_in; lw=2, c=:red, label="Producer T_in", title="Load and Producer Temperatures comparison")    # plot only temperatures
