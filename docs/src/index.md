@@ -12,6 +12,8 @@ We solve the dynamics in two steps:
 
 More on plug method in [Plug method](@ref).
 
+small change
+
 
 ## Getting started
 To install the package, open the Julia REPL and type
