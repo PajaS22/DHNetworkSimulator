@@ -11,6 +11,7 @@ Unlike a plain graph, a `Network` stores *typed domain data* on:
 
 - **nodes**: `ProducerNode`, `JunctionNode`, `LoadNode` (plus `EmptyNode` as a placeholder during construction),
 - **edges**: typically `InsulatedPipe` (plus `EmptyEdge` as a placeholder during construction).
+- more on nodes and edges in [Network nodes and edges](@ref)
 
 This design makes it straightforward to build a topology, attach physical parameters, and run the hydraulic + thermal simulation.
 

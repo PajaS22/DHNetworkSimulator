@@ -31,6 +31,7 @@ function Network(graph::SimpleDiGraph)
     return Network(mg, nothing, Set{String}(), NeighborDicts())
 end
 
+"Fill the physical parameters of the edges in the network based on the provided `pipe_params` dictionary."
 function fill_physical_params!(network::Network, pipe_params::Dict{Tuple{Int,Int}, PipeParams})
     for (u, v) in keys(pipe_params)
         if has_edge(network, u, v)
@@ -41,6 +42,7 @@ function fill_physical_params!(network::Network, pipe_params::Dict{Tuple{Int,Int
     end
 end
 
+"Fill the positions of the nodes in the network based on the provided `node_positions` dictionary."
 function fill_node_positions!(network::Network, node_positions::Dict{String, Tuple{Float64, Float64}})
     for (label, pos) in node_positions
         if has_label(network, label)
@@ -55,6 +57,10 @@ function fill_node_positions!(network::Network, node_positions::Dict{String, Tup
     end
 end
 
+"""Rename the nodes in the network according to the provided `labels` vector.
+
+The order of labels should correspond to the order in which were the nodes added to the graph
+(default labels are "1", "2", ..., "n")."""
 function name_nodes!(network::Network, labels::Vector{String})
     # careful! The internal graph cannot rename the labels, so we have to remove a node and add it back again with the new label
     # tricky part is the removal, if we remove a node v, all the nodes v+k are reindexed so that the total |V| is reduced by 1
@@ -69,6 +75,18 @@ function name_nodes!(network::Network, labels::Vector{String})
     end
 end
 
+"""Identify the producer and load nodes in the network.
+
+This comes in handy in situation when the graph was provided without node types (e.g. from a file) 
+and we want to classify the nodes based on their connectivity.
+
+This function classifies nodes based on their degree:
+- Nodes with outdegree > 0 and indegree == 0 are classified as `ProducerNode` (source).
+- Nodes with outdegree == 0 and indegree > 0 are classified as `LoadNode` (sink).
+- Nodes with outdegree > 0 and indegree > 0 are classified as `JunctionNode`.
+- Nodes with outdegree == 0 and indegree == 0 are classified as `EmptyNode` (isolated).
+    these should not appear in a valid network!
+"""
 function identify_producer_and_loads!(network::Network)
     # identify producer node (source) and load nodes (sinks)
     for nl in all_labels(network)
@@ -89,6 +107,11 @@ function identify_producer_and_loads!(network::Network)
     end
 end
 
+"""Fill the load specifications: (power coefficients and relative mass flow)
+
+   - `pwr_coefs` specifies tuples of power coefficients (p0, p1, p2) for the quadratic power curve.
+   - `m_r` specifies relative mass flow coefficients
+"""
 function fill_load_specs!(network::Network, pwr_coefs::Dict{String, NTuple{3, Float64}}, m_r::Dict{String, Float64})
     for label in network.load_labels
         if haskey(pwr_coefs, label)
