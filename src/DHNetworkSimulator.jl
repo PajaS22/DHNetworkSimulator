@@ -37,6 +37,7 @@ export index_for, has_label
 export rem_node!, rename_node!
 export length, inner_diameter, heat_resistance_forward, heat_resistance_backward
 export water_velocities, water_velocity
+export outneighbors, inneighbors, neighbors, degree, outdegree, indegree
 
 include("printing.jl")
 

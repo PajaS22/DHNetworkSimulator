@@ -78,10 +78,10 @@
         l2 = label_for(nw, n2)
         l3 = label_for(nw, n3)
 
-        @test degree(nw, n1) == 2
-        @test outdegree(nw, n1) == 2
-        @test indegree(nw, n1) == 0
-        @test inneighbors(nw, n2) == [n1]
+        @test DHN.degree(nw, "node1") == 2
+        @test DHN.outdegree(nw, "node1") == 2
+        @test DHN.indegree(nw, "node1") == 0
+        @test DHN.inneighbors(nw, "node2") == ["node1"]
     end
     @testset "load labels" begin
         # keep track of load node ids when adding, removing and replacing load nodes

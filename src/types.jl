@@ -167,6 +167,15 @@ struct EmptyEdge <: EdgeType end
 # DH NETWORK TYPE
 # ------------------------------------------------- #
 
+"Mappings to inneghbors and outneighbors for efficient access during simulation, stored in the Network struct."
+mutable struct NeighborDicts
+    outneighbors::Dict{String, Vector{String}}       # mapping nodes to outneighbors for efficient access in simulation
+    inneighbors::Dict{String, Vector{String}}        # mapping nodes to inneighbors for efficient access in simulation
+    need_rebuild::Bool                               # flag to indicate if neighbor dicts need to be rebuilt before simulation
+end
+NeighborDicts() = NeighborDicts(Dict{String, Vector{String}}(), Dict{String, Vector{String}}(), true)
+
+
 """
 The main data structure representing a district heating network, which consists of a MetaGraph containing
 nodes and edges with associated data, as well as labels for the producer and consumer nodes.
@@ -176,6 +185,7 @@ nodes and edges with associated data, as well as labels for the producer and con
                                                       structure and node and edge data
         producer_label::Union{Nothing, String}      # Label of the producer node
         load_labels::Set{String}                    # Labels of the consumer nodes
+        neighbor_dicts::NeighborDicts               # Mappings to inneghbors and outneighbors for efficient access during simulation
     end
 
     # Constructors
@@ -188,6 +198,13 @@ mutable struct Network{T<:Integer} <: AbstractGraph{T}
     mg::MetaGraph                               # MetaGraph from MetaGraphs.jl, it contains the network structure and node and edge data
     producer_label::Union{Nothing, String}      # Label of the producer node
     load_labels::Set{String}                    # Labels of the consumer nodes
+    neighbor_dicts::NeighborDicts               # Mappings to inneghbors and outneighbors for efficient access during simulation
+    
+    function Network(mg::MetaGraph, producer_label, load_labels, neighbor_dicts) 
+        network = new{eltype(vertices(mg))}(mg, producer_label, load_labels, neighbor_dicts)
+        check_and_update_neighbor_dicts!(network) # upon creation, construct the neighbor dicts
+        return network
+    end
 end
 
 # ------------------------------------------------- #
@@ -202,7 +219,7 @@ function Network()
         vertex_data_type=NodeType,
         edge_data_type=EdgeType
     )
-    return Network{Int}(mg, nothing, Set{String}())
+    return Network(mg, nothing, Set{String}(), NeighborDicts())
 end
 
 # ------------------------------------------------- #

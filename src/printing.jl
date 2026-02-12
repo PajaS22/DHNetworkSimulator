@@ -20,6 +20,7 @@ function Base.show(io::IO, nw::Network)
     else
         println(io, " Load nodes: not set")
     end
+    println(io, " Neighbor dicts need rebuild: ", nw.neighbor_dicts.need_rebuild)
     # print nodes
     println(io, "---")
     print_nodes(nw)

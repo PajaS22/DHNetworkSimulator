@@ -151,12 +151,6 @@ git-tree-sha1 = "389ad5c84de1ae7cf0e28e381131c98ea87d54fc"
 uuid = "fa961155-64e5-5f13-b03f-caf6b980ea82"
 version = "0.5.0"
 
-[[deps.CMAEvolutionStrategy]]
-deps = ["Dates", "LinearAlgebra", "Printf", "Random", "Statistics"]
-git-tree-sha1 = "6bf0985be2c5ea58305d2d04e336684f64fdc12a"
-uuid = "8d3b24bd-414e-49e0-94fb-163cc3a3e411"
-version = "0.2.6"
-
 [[deps.CPUSummary]]
 deps = ["CpuId", "IfElse", "PrecompileTools", "Preferences", "Static"]
 git-tree-sha1 = "f3a21d7fc84ba618a779d1ed2fcca2e682865bab"
@@ -333,7 +327,7 @@ uuid = "a8cc5b0e-0ffa-5ad4-8c14-923d3ee1735f"
 version = "4.1.1"
 
 [[deps.DHNetworkSimulator]]
-deps = ["CMAEvolutionStrategy", "ColorSchemes", "Colors", "DataStructures", "Dates", "FileIO", "ForwardMethods", "GLMakie", "GraphMakie", "Graphs", "MetaGraphsNext", "Plots", "StatsBase", "TSFrames", "Test"]
+deps = ["ColorSchemes", "Colors", "DataStructures", "Dates", "ForwardMethods", "GLMakie", "GraphMakie", "Graphs", "MetaGraphsNext", "Plots", "StatsBase", "TSFrames", "Test"]
 path = ".."
 uuid = "2eb6275f-2a99-494f-9a8b-24b61cb8f4b7"
 version = "0.1.0"

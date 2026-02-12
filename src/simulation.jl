@@ -76,6 +76,9 @@ function run_simulation(network::Network, sim_time::Union{Vector{Float64}, Vecto
     #   Tₐ is ambient temperature at time t or nothing if ambient temperature is not provided
     #   T_back is the temperature of water returning to producer at time t (if t > 1, otherwise use initial T0_b)
 
+    # check network structure (one producer, connected, acyclic,...), also updates neighbor dicts if they are not built yet
+    check_network!(network::Network)
+
     # check time steps are equally spaced
     if(eltype(sim_time) <: Float64)
         dt = diff(sim_time)
@@ -185,6 +188,10 @@ function set_relative_mass_flows!(nw::Network)
     # we will do iterative post-order DFS traversal
 
     root = nw.producer_label
+    if root === nothing
+        error("Producer node is not set in the network (producer_label is nothing).")
+    end
+    root = root::String
     stack = Vector{Tuple{String, Bool}}()  # stack of (node, visited)
     push!(stack, (root, false))
     while !isempty(stack)
@@ -192,16 +199,18 @@ function set_relative_mass_flows!(nw::Network)
 
         if visited
             # SECOND VISIT -> process node
-            if(outdegree(nw,node)) == 0 # leaf node
+            if nw[node] isa ProducerNode
+                continue # skip root node
+            end
+
+            parent_node = inneighbors(nw, node)[1] # assume there is only one parent
+            if(outdegree(nw, node) == 0) # leaf node
                 @assert nw[node] isa LoadNode
-                for parent in inneighbors(nw, node)
-                    edge = nw[parent, node]
-                    edge.m_rel = nw[node].m_rel # copy m_rel from LoadNode to the edge leading to it
-                end
+                nw[parent_node, node].m_rel = nw[node].m_rel # copy m_rel from LoadNode to the edge leading to it
+                    
             elseif nw[node] isa JunctionNode # visiting for second time, so all childer have been processed
-                m_rel_sum = sum(nw[node, child].m_rel for child in outneighbors(nw, node))
-                parent = inneighbors(nw, node)[1] # assume there is only one parent
-                nw[parent, node].m_rel = m_rel_sum # set m_rel on the edge leading to this junction
+                m_rel_sum = sum(nw[node, child].m_rel for child in outneighbors(nw, node))::Float64
+                nw[parent_node, node].m_rel = m_rel_sum # set m_rel on the edge leading to this junction
             end
 
         else
@@ -222,6 +231,10 @@ function set_absolute_mass_flows!(nw::Network, mass_flow_source::Float64)
     # do it by BFS from root to leaves
 
     root = nw.producer_label
+    if root === nothing
+        error("Producer node is not set in the network (producer_label is nothing).")
+    end
+    root = root::String
     nw[root].common.mass_flow = mass_flow_source
     queue = [root]
 
@@ -276,6 +289,10 @@ function time_step_thermal_dynamics_forward!(nw::Network, Δt::Float64, temperat
 
     # create plugs entering the network at the source node
     root = nw.producer_label
+    if root === nothing
+        error("Producer node is not set in the network (producer_label is nothing).")
+    end
+    root = root::String
     source_edges = [nw[root, n] for n in outneighbors(nw, root)]
     plug_masses = [edge.mass_flow * Δt for edge in source_edges] # integrate mass flow from source edge to get mass in kg
     for (source_edge, plug_mass) in zip(source_edges, plug_masses)
@@ -353,6 +370,10 @@ function time_step_thermal_dynamics_backward!(nw::Network, Δt::Float64, incomin
     # iterate over nodes from leaves to root using iterative post-order DFS traversal
 
     root = nw.producer_label
+    if root === nothing
+        error("Producer node is not set in the network (producer_label is nothing).")
+    end
+    root = root::String
     stack = Vector{Tuple{String, Bool}}()  # stack of (node, visited)
     push!(stack, (root, false))
     while !isempty(stack)

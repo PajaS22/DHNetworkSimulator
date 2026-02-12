@@ -10,9 +10,9 @@ import Graphs: nv, ne, vertices, edges
 # ------------------------------------------------ #
 
 # indexing nodes
-Base.getindex(nw::Network, label::String) = nw.mg[label]
+Base.getindex(nw::Network, label::String)::NodeType = nw.mg[label]
 Base.getindex(nw::Network, labels::Vector{String}) = [nw.mg[lbl] for lbl in labels]
-Base.getindex(nw::Network, i::Int) = nw.mg[MetaGraphsNext.label_for(nw.mg, i)]
+Base.getindex(nw::Network, i::Int)::NodeType = nw.mg[MetaGraphsNext.label_for(nw.mg, i)]
 Base.getindex(nw::Network, i::Vector{Int}) = [nw.mg[MetaGraphsNext.label_for(nw.mg, j)] for j in i]
 
 Base.setindex!(nw::Network, v::ProducerNode, label::String) = add_producer_node!(nw, v, label)
@@ -35,7 +35,7 @@ function index_for(nw::Network, src::String, dst::String)
     end
     return (MetaGraphsNext.code_for(nw.mg, src), MetaGraphsNext.code_for(nw.mg, dst))
 end
-Base.getindex(nw::Network, src::String, dst::String) = nw.mg[src, dst]
+Base.getindex(nw::Network, src::String, dst::String)::EdgeType = nw.mg[src, dst]
 function Base.getindex(nw::Network, v_i::Int, u_i::Int)
     k1 = label_for(nw.mg, v_i)
     k2 = label_for(nw.mg, u_i)
@@ -47,6 +47,49 @@ function Base.getindex(nw::Network, v_i::Int, u_i::Int)
 end
 Base.setindex!(nw::Network, e::ET, v_i::Int, u_i::Int)  where {ET<:EdgeType} = (nw.mg[label_for(nw.mg,v_i), label_for(nw.mg,u_i)] = e)
 
+function check_and_update_neighbor_dicts!(nw::Network)
+    if !nw.neighbor_dicts.need_rebuild # flag is off, no need to rebuild
+        return false
+    end
+    for v in vertices(nw.mg)
+        nw.neighbor_dicts.outneighbors[label_for(nw.mg, v)] = [label_for(nw.mg, w) for w in Graphs.outneighbors(nw.mg, v)]
+        nw.neighbor_dicts.inneighbors[label_for(nw.mg, v)] = [label_for(nw.mg, w) for w in Graphs.inneighbors(nw.mg, v)]
+    end
+    nw.neighbor_dicts.need_rebuild = false # reset the flag after rebuilding
+    return true
+end
+
+"""Check network upon start of the simulation.
+
+1. update neighbor dicts if needed
+2. if there was a change, check that
+    - there is exactly one producer node
+    - there are no cycles in the network (DAG)
+    - all nodes are reachable from the producer node
+    - load nodes are leaves
+"""
+function check_network!(network::Network)
+    if check_and_update_neighbor_dicts!(network) # there was a change
+        # check that there is exactly one producer node
+        if isnothing(network.producer_label)
+            error("Producer node is not set in the network!")
+        end
+        # check that there are no cycles in the network (DAG)
+        if is_cyclic(network.mg)
+            error("The network graph must be acyclic!")
+        end
+        # check that all nodes are reachable from the producer node
+        if !is_connected(network.mg)
+            error("The network graph must be connected!")
+        end
+        # check that load nodes are leaves
+        for load_label in network.load_labels
+            if outdegree(network, load_label) != 0
+                error("Load nodes must be leaves (outdegree must be 0)! Node with label $load_label has outdegree $(outdegree(network, load_label))")
+            end
+        end
+    end
+end
 
 # removing nodes and edges
 function rem_node!(nw::Network, label::String)
@@ -59,6 +102,7 @@ function rem_node!(nw::Network, label::String)
         filter!(x -> x != label, nw.load_labels)
     end
     Graphs.rem_vertex!(nw.mg, index_for(nw, label))
+    nw.neighbor_dicts.need_rebuild = true
 end
 rem_node!(nw::Network, idx::Integer) = rem_node!(nw, label_for(nw, idx))
 
@@ -73,12 +117,18 @@ all_labels(nw::Network) = [l for l in MetaGraphsNext.labels(nw.mg)]
 @forward_methods Network field=mg nv ne vertices edges
 @forward_methods Network field=mg Graphs.degree(_,i::Int) Graphs.outdegree(_,i::Int) Graphs.inneighbors(_,i::Int) Graphs.outneighbors(_,i::Int)
 
-Graphs.outneighbors(nw::Network, label::String) = [label_for(nw, v) for v in Graphs.outneighbors(nw.mg, index_for(nw, label))]
-Graphs.inneighbors(nw::Network, label::String) = [label_for(nw, v) for v in Graphs.inneighbors(nw.mg, index_for(nw, label))]
-Graphs.neighbors(nw::Network, label::String) = [label_for(nw, v) for v in Graphs.neighbors(nw.mg, index_for(nw, label))]
-Graphs.degree(nw::Network, label::String) = Graphs.degree(nw.mg, index_for(nw, label))
-Graphs.outdegree(nw::Network, label::String) = Graphs.outdegree(nw.mg, index_for(nw, label))
-Graphs.indegree(nw::Network, label::String) = Graphs.indegree(nw::Network, index_for(nw, label))
+# my implementation of neighbors and degree functions using the neighbor dicts for efficient access during simulation
+function outneighbors(nw::Network, label::String)
+    check_and_update_neighbor_dicts!(nw)
+    nw.neighbor_dicts.outneighbors[label]
+end
+function inneighbors(nw::Network, label::String)
+    check_and_update_neighbor_dicts!(nw)
+    nw.neighbor_dicts.inneighbors[label]
+end
+degree(nw::Network, label::String)  = outdegree(nw, label) + indegree(nw, label)
+outdegree(nw::Network, label::String) = length(outneighbors(nw, label))
+indegree(nw::Network, label::String) = length(inneighbors(nw, label))
 
 
 # Node data operations: positions
@@ -117,6 +167,7 @@ function add_node!(nw::Network, v::NT, label::String) where {NT<:NodeType}
         end
     end
     nw.mg[label] = v
+    nw.neighbor_dicts.need_rebuild = true
 end
 
 function rename_node!(nw::Network, old_label::String, new_label::String)
@@ -127,8 +178,8 @@ function rename_node!(nw::Network, old_label::String, new_label::String)
         error("Node with label $new_label already exists in the network.")
     end
     node = nw[old_label]
-    in_edges = [(label, nw[label, old_label]) for label in inneighbors(nw, old_label)]
-    out_edges = [(label, nw[old_label, label]) for label in outneighbors(nw, old_label)]
+    in_edges = [(label, nw[label, old_label]) for label in DHNetworkSimulator.inneighbors(nw, old_label)]
+    out_edges = [(label, nw[old_label, label]) for label in DHNetworkSimulator.outneighbors(nw, old_label)]
     rem_node!(nw, old_label)
     nw[new_label] = node
     for (src_label, edge_data) in in_edges
@@ -137,6 +188,8 @@ function rename_node!(nw::Network, old_label::String, new_label::String)
     for (dst_label, edge_data) in out_edges
         nw[new_label, dst_label] = edge_data
     end
+    nw.neighbor_dicts.need_rebuild = true
+    check_and_update_neighbor_dicts!(nw) # update the neighbor dicts after renaming
 end
 
 # set input mass flow and temperature at source node

@@ -9,7 +9,7 @@ function Network(graph::SimpleDiGraph)
         error("The input graph must be a tree (connected and acyclic).")
     end
     # check if there is at most one source node (node with outdegree > 0 and indegree == 0)
-    source_nodes = [v for v in vertices(graph) if outdegree(graph, v) > 0 && indegree(graph, v) == 0]
+    source_nodes = [v for v in vertices(graph) if Graphs.outdegree(graph, v) > 0 && Graphs.indegree(graph, v) == 0]
     if length(source_nodes) > 1
         error("The input graph must have at most one source node (node with outdegree > 0 and indegree == 0). Found $(length(source_nodes)) source nodes.")
     end
@@ -27,8 +27,8 @@ function Network(graph::SimpleDiGraph)
     for e in edges(graph)
         mg[default_labels[src(e)], default_labels[dst(e)]] = EmptyEdge()
     end
-    
-    return Network{Int}(mg, nothing, Set{String}())
+
+    return Network(mg, nothing, Set{String}(), NeighborDicts())
 end
 
 function fill_physical_params!(network::Network, pipe_params::Dict{Tuple{Int,Int}, PipeParams})
