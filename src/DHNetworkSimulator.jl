@@ -2,9 +2,13 @@ module DHNetworkSimulator
 
 using Graphs, MetaGraphsNext, DataStructures
 using ForwardMethods                            # for overloading functions from Graphs.jl and MetaGraphs.jl on Network
-using GraphMakie, GLMakie, Colors, ColorSchemes
+using GraphMakie, Colors, ColorSchemes
 using Plots
 using Dates
+
+if get(ENV, "GITHUB_ACTIONS", "false") != "true"
+    using GLMakie # only load GLMakie when not running in GitHub Actions, to avoid issues with headless rendering
+end
 
 const WATER_DENSITY = 1000.0            # kg/m3 at approx. 25 degC
 const WATER_SPECIFIC_HEAT = 4186.0      # J/(kg*K) at approx. 25 degC
