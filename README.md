@@ -10,6 +10,10 @@ We solve the dynamics in two steps:
 
 More on plug method in [Plug method](Plug_method.md).
 
+## Documentation
+
+See documentation at (https://pajas22.github.io/DHNetworkSimulator)
+
 ## Features
 
 - Network model built on `Graphs.jl` + `MetaGraphsNext.jl`
