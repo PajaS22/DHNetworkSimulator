@@ -18,7 +18,7 @@ small change
 ## Getting started
 To install the package, open the Julia REPL and type
 ```julia
-julia> using Pkg; Pkg.add("https://github.com/PajaS22/DHNetworkSimulator")
+julia> using Pkg; Pkg.add(url="https://github.com/PajaS22/DHNetworkSimulator")
 ```
 
 ### Examples
