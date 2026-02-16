@@ -296,6 +296,13 @@ end
 # Simulation helper methods
 # ------------------------------------------------- #
 
+"""Compute and assign relative mass-flow split coefficients `m_rel` on edges.
+
+This performs a post-order traversal from leaves to root and sets, for each edge
+leading into a node, the sum of `m_rel` values required downstream.
+
+This is an internal step of [`steady_state_hydronynamics!`](@ref).
+"""
 function set_relative_mass_flows!(nw::Network)
     # iterate over nodes from leaves to root and set on each edge relative mass flow coefficient m_rel
     # we will do iterative post-order DFS traversal
@@ -338,6 +345,12 @@ function set_relative_mass_flows!(nw::Network)
     end
 end
 
+"""Assign absolute mass flows throughout the network.
+
+Given the producer mass flow `mass_flow_source` [kg/s] and relative edge split
+coefficients (see [`set_relative_mass_flows!`](@ref)), this propagates mass flows
+from root to leaves and writes `mass_flow` to both nodes and pipe edges.
+"""
 function set_absolute_mass_flows!(nw::Network, mass_flow_source::Float64)
     # set absolute mass flows on edges based on relative mass flow coefficients m_rel and source mass flow
     # when entering junction, mass flow is split according to m_rel coefficients
@@ -371,14 +384,27 @@ function set_absolute_mass_flows!(nw::Network, mass_flow_source::Float64)
     end
 end
 
-function steady_state_hydronynamics!(nw::Network, mass_flow_source::Float64)
-    # compute steady-state hydrodynamics of the network
-    # assuming that mass flows are already set on edges and nodes
+"""Compute steady-state hydraulics for a `Network`.
 
+This updates the mass-flow distribution throughout the network for a given
+producer (source) mass flow `mass_flow_source` [kg/s].
+
+Internally it:
+
+1. computes relative flow splits (`set_relative_mass_flows!`),
+2. assigns absolute mass flows on edges and nodes (`set_absolute_mass_flows!`).
+"""
+function steady_state_hydronynamics!(nw::Network, mass_flow_source::Float64)
     set_relative_mass_flows!(nw)
     set_absolute_mass_flows!(nw, mass_flow_source)
 end
 
+"""Initialize all pipe plug queues with uniform temperatures.
+
+Fills every `InsulatedPipe` in the network with a single plug in the forward
+queue at `temperature_f` and a single plug in the backward queue at
+`temperature_b`.
+"""
 function fill_pipes_with_initial_temperature!(nw::Network, temperature_f::Float64, temperature_b::Float64)
     # fill all pipes in the network with water at initial temperature, forward and backward have different T0
     for e in edges(nw.mg)
@@ -541,8 +567,13 @@ function time_step_thermal_dynamics_backward!(nw::Network, Δt::Float64, incomin
     return output_plug
 end
 
+"""Collect plugs that exit a pipe over one time step.
+
+Given a plug queue `plugs` (front = pipe outlet), mass flow `mass_flow` [kg/s],
+and time step `Δt` [s], this pops and (if needed) splits plugs so that the
+returned vector has total mass approximately `mass_flow*Δt`.
+"""
 function collect_exiting_water_plugs!(plugs::Vector{Plug}, mass_flow::Float64, Δt::Float64)::Vector{Plug}
-    # collect plugs that exit the pipe during time step Δt
     exited_plugs = Vector{Plug}()
     mass_exited = mass_flow * Δt # theoretical amount that should exit
     if(mass_exited <= 0.0)
@@ -585,8 +616,12 @@ function push_in_water_plugs_backward!(e::InsulatedPipe, plugs::Vector{Plug})
     merge_same_temperature_plugs!(e.plugs_b)
 end
 
+"""Merge consecutive plugs whose temperatures are nearly equal.
+
+This simplifies a plug queue in-place by combining adjacent plugs when
+`abs(ΔT) < tol`.
+"""
 function merge_same_temperature_plugs!(plugs::Vector{Plug}; tol::Float64=1e-3)
-    # merge consecutive plugs with same temperature (within tolerance tol) to reduce number of plugs
     if isempty(plugs)
         return
     end
@@ -607,8 +642,8 @@ function merge_same_temperature_plugs!(plugs::Vector{Plug}; tol::Float64=1e-3)
     append!(plugs, merged_plugs) # replace original plugs with merged ones
 end
 
+"""Combine multiple plugs into a single mass-weighted average plug."""
 function combine_plugs(plugs::Vector{Plug})::Plug
-    # combine multiple plugs into one by mass-weighted average of temperature
     total_mass = sum(p.m for p in plugs)
     if total_mass == 0.0
         return Plug(25.0, 0.0) # default temperature for zero mass
@@ -617,12 +652,20 @@ function combine_plugs(plugs::Vector{Plug})::Plug
     return Plug(avg_temp, total_mass)
 end
 
+"""Set load parameters for one load node.
+
+Currently this sets only the relative mass-flow coefficient `m_rel`.
+"""
 function set_load_params!(nw::Network, load_label::String, m_rel::Float64)
     # set parameters of a load node, for now just relative mass flow coefficient
     @assert nw[load_label] isa LoadNode
     nw[load_label].m_rel = m_rel
 end
 
+"""Set load parameters for multiple load nodes.
+
+`load_params` maps `load_label => m_rel`.
+"""
 function set_load_params!(nw::Network, load_params::Dict{String, Float64})
     # set parameters of multiple load nodes
     for (load_label, m_rel) in load_params
@@ -672,6 +715,10 @@ function heat_loss_backward!(nw::Network, ambient_temperature::Float64, Δt::Flo
     end
 end
 
+"""Compute load power demand as a function of outdoor temperature.
+
+Returns power in Watts.
+"""
 function power_consumption(node::LoadNode, Tₐ::Float64)::Float64
     # compute power consumption of a load node based on outdoor temperature and load coefficients
     # power consumtion is polynomial function of outdoor temperature: P = a + b*Tₐ + c*Tₐ^2 + ...
@@ -687,6 +734,10 @@ function power_consumption(node::LoadNode, Tₐ::Float64)::Float64
     return P * 1000.0 # convert from kW to W
 end
 
+"""Reduce a plug temperature by consuming `power` over a time step.
+
+`power` is in Watts and `Δt` is in seconds. Updates `p` in-place.
+"""
 function consume_power!(p::Plug, power::Float64, Δt::Float64)
     # compute new temperature of the plug after consuming power for time step Δt
     # energy consumed is E = P * Δt, which reduces the thermal energy of the plug: m*cₚ*ΔT = E
@@ -700,9 +751,12 @@ function consume_power!(p::Plug, power::Float64, Δt::Float64)
     p.T -= ΔT
 end
 
+"""Merge multiple plug sequences into one sequence (return-side merging).
+
+This is used when multiple return streams meet at a junction: it produces a
+single plug sequence that is consistent with the combined mass.
+"""
 function merge_water_plug_vectors!(plug_vectors::Vector{Vector{Plug}})::Vector{Plug}
-    # merge multiple vectors of plugs into one vector by combining plugs with same temperature
-    # first we need to find the times when plugs change ... parametrize by t ∈ [0,1]
 
     if length(plug_vectors) == 1
         merge_same_temperature_plugs!(plug_vectors[1]; tol=1e-2)
@@ -750,4 +804,37 @@ function merge_water_plug_vectors!(plug_vectors::Vector{Vector{Plug}})::Vector{P
     
     @assert isapprox(sum(p.m for p in merged_plugs), sum(total_masses); atol=1e-6) # check that total mass is conserved
     return merged_plugs
+end
+
+"""Advance thermal dynamics by one time step.
+
+This is a convenience wrapper used for manual stepping outside of [`run_simulation`](@ref).
+It performs:
+
+1. forward (supply) plug advection from producer to loads,
+2. load power consumption and cooling,
+3. backward (return) advection back to the producer.
+
+# Arguments
+- `nw::Network`: the network (must have steady-state mass flows already computed, e.g. via [`steady_state_hydronynamics!`](@ref)).
+- `Δt::Float64`: time step in seconds.
+- `input::ProducerOutput`: producer setpoints for this step.
+
+# Keyword Arguments
+- `ambient_temperature`: outdoor/ambient temperature in °C (or `nothing`). When `nothing`, a default of 15°C is used for load demand.
+
+# Returns
+- `(output_plugs, incoming_plug)` where `output_plugs` maps load labels to their inlet plug, and `incoming_plug` represents the return temperature entering the producer.
+"""
+function time_step_thermal_dynamics!(nw::Network, Δt::Float64, input::ProducerOutput; ambient_temperature::Union{Float64, Nothing}=nothing)
+    output_plugs = time_step_thermal_dynamics_forward!(nw, Δt, input.temperature, ambient_temperature)
+
+    Tₐ_load = isnothing(ambient_temperature) ? 15.0 : ambient_temperature
+    for load_label in keys(output_plugs)
+        P = power_consumption(nw[load_label], Tₐ_load)
+        consume_power!(output_plugs[load_label], P, Δt)
+    end
+
+    incoming_plug = time_step_thermal_dynamics_backward!(nw, Δt, output_plugs, Tₐ_load)
+    return output_plugs, incoming_plug
 end

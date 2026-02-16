@@ -15,13 +15,18 @@ Unlike a plain graph, a `Network` stores *typed domain data* on:
 
 This design makes it straightforward to build a topology, attach physical parameters, and run the hydraulic + thermal simulation.
 
-## What It Stores
-
-```@docs
-Network
-```
+See [`Network`](@ref) in the API reference.
 
 ## Features
+
+- **Typed nodes and edges**: domain structs like [`ProducerNode`](@ref), [`LoadNode`](@ref), and [`InsulatedPipe`](@ref) are stored directly on the graph.
+- **Label-based addressing**: access nodes/edges by string labels (`nw["A"]`, `nw["A", "B"]`).
+- **Graphs.jl compatibility**: `Network` subtypes `AbstractGraph`, so you can use functions like `nv`, `ne`, `vertices`, and `edges`.
+- **Validated structural assumptions**: [`run_simulation`](@ref) calls [`DHNetworkSimulator.check_network!`](@ref) to validate the topology (one producer, acyclic, connected, loads are leaves).
+- **Fast neighbor access**: cached neighbor lists via [`NeighborDicts`](@ref) with label-based helpers [`outneighbors`](@ref) / [`inneighbors`](@ref).
+- **Built-in visualization**: interactive plotting via [`visualize_graph!`](@ref) with edge labels from [`edge_info`](@ref) / [`edge_info_hover`](@ref).
+
+## Implementation details
 
 ### MetaGraph
 
@@ -42,6 +47,7 @@ Because `Network` subtypes `AbstractGraph`, you can also use Graphs.jl-style API
     Functions like `vertices`, `edges`, `src(e)`, `dst(e)` from Graphs.jl give you *vertex indices* from the underlying graph.
     To convert an index back to a label, use `label_for(nw, idx)`.
 
+
 ## Structural Assumptions (Validated at Simulation Start)
 
 The simulator assumes the network is **static** during a run (topology does not change while stepping).
@@ -60,9 +66,7 @@ which does all of that, no need to do it yourself.
 Thermal and hydraulic stepping frequently calls `outneighbors(nw, label)` and `inneighbors(nw, label)`.
 To reduce allocations and repeated work, `Network` maintains cached neighbor lists in `NeighborDicts`:
 
-```@docs
-NeighborDicts
-```
+See [`NeighborDicts`](@ref) in the API reference.
 
 When you modify the network structure (add/remove/rename nodes or edges), the cache is marked dirty.
 It is rebuilt automatically when needed (for example in `run_simulation` via `check_network!`).
@@ -159,7 +163,7 @@ Blue nodes are loads, green is producer, black lines are pipes. The thicker the 
 f, ax, p = visualize_graph!(network)
 display(f)
 ```
-![network_viz1](network_viz1.png)
+![network_viz1](figures/network_viz1.png)
 *Vizualization of example network*
 
 If there is computed steady state flow first, the visualization shows the flow in the edges as well. The darker the more flow there is, which makes easy to analyze turbulance. Also, additional info is written in labels next to the edges and the exact flow velocity in [m/s] is shown upon hover.
@@ -169,7 +173,7 @@ f, ax, p = visualize_graph!(network)
 display(f)
 ```
 
-![network_viz2](network_viz2.png)
+![network_viz2](figures/network_viz2.png)
 *Zoomed in part of a network after computing steady state of hydrodynamics*
 
 

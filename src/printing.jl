@@ -28,7 +28,7 @@ function Base.show(io::IO, nw::Network)
     println(io, "---")
     print_edges(nw)
 end
-# print edges(network)
+"""Print all edges of the network with their stored edge data."""
 function print_edges(nw::Network)
     println("Edges in the network:")
     for e in edges(nw)
@@ -37,7 +37,7 @@ function print_edges(nw::Network)
         print("[$(src(e))] $src_label -->  [$(dst(e))] $dst_label : ", nw[src_label, dst_label])
     end
 end
-# print nodes(network)
+"""Print all nodes of the network with their stored node data."""
 function print_nodes(nw::Network)
     println("Nodes in the network:")
     for v in labels(nw.mg)

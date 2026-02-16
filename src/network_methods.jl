@@ -19,8 +19,15 @@ Base.setindex!(nw::Network, v::ProducerNode, label::String) = add_producer_node!
 Base.setindex!(nw::Network, v::LoadNode, label::String) = add_load_node!(nw, v, label)
 Base.setindex!(nw::Network, v::NT, label::String) where {NT<:NodeType} = add_node!(nw, v, label)
 Base.setindex!(nw::Network, v::Vector{NT}, labels::Vector{String}) where {NT<:NodeType} = (for (j, lbl) in enumerate(labels); nw.mg[lbl] = v[j]; end)
+
+"""Return `true` if `label` exists as a node label in the network."""
 has_label(nw::Network, label::String) = MetaGraphsNext.haskey(nw.mg, label)
 
+"""Return the internal vertex index for a given node `label`.
+
+This is mainly useful when interacting with Graphs.jl functions that operate on
+integer vertex indices.
+"""
 index_for(nw::Network, label::String) = MetaGraphsNext.code_for(nw.mg, label)
 @forward_methods Network field=mg MetaGraphsNext.label_for(_,i::Int)
 
@@ -92,6 +99,11 @@ function check_network!(network::Network)
 end
 
 # removing nodes and edges
+"""Remove a node from a `Network` by its string label.
+
+This updates `producer_label` / `load_labels` as needed and marks neighbor caches
+dirty.
+"""
 function rem_node!(nw::Network, label::String)
     v = nw[label]
     if v isa ProducerNode
@@ -107,9 +119,16 @@ end
 rem_node!(nw::Network, idx::Integer) = rem_node!(nw, label_for(nw, idx))
 
 # getting all node data and edge data
+"""Return a vector of all node data stored in a `Network` (in label order)."""
 vertices_data(nw::Network) = [nw.mg[v] for v in labels(nw.mg)]
+
+"""Return a vector of all node data stored in a MetaGraphsNext `MetaGraph` (in label order)."""
 vertices_data(mg::MetaGraph) = [mg[v] for v in labels(mg)]
+
+"""Return a vector of all edge data stored in a `Network`."""
 edges_data(nw::Network) = [nw.mg[src,dst] for (src,dst) in MetaGraphsNext.edge_labels(nw.mg)]
+
+"""Return all vertex labels in the network."""
 all_labels(nw::Network) = [l for l in MetaGraphsNext.labels(nw.mg)]
 
 
@@ -118,10 +137,22 @@ all_labels(nw::Network) = [l for l in MetaGraphsNext.labels(nw.mg)]
 @forward_methods Network field=mg Graphs.degree(_,i::Int) Graphs.outdegree(_,i::Int) Graphs.inneighbors(_,i::Int) Graphs.outneighbors(_,i::Int)
 
 # my implementation of neighbors and degree functions using the neighbor dicts for efficient access during simulation
+"""Return outgoing neighbor labels for a node label.
+
+This is the `Network`-specific overload that returns **string labels** (not
+Graphs.jl vertex indices). Neighbor caches are rebuilt automatically when
+needed.
+"""
 function outneighbors(nw::Network, label::String)
     check_and_update_neighbor_dicts!(nw)
     nw.neighbor_dicts.outneighbors[label]
 end
+"""Return incoming neighbor labels for a node label.
+
+This is the `Network`-specific overload that returns **string labels** (not
+Graphs.jl vertex indices). Neighbor caches are rebuilt automatically when
+needed.
+"""
 function inneighbors(nw::Network, label::String)
     check_and_update_neighbor_dicts!(nw)
     nw.neighbor_dicts.inneighbors[label]
@@ -170,6 +201,11 @@ function add_node!(nw::Network, v::NT, label::String) where {NT<:NodeType}
     nw.neighbor_dicts.need_rebuild = true
 end
 
+"""Rename a node label in-place.
+
+This preserves the node data and all incident edges by removing the old label and
+re-inserting under `new_label`.
+"""
 function rename_node!(nw::Network, old_label::String, new_label::String)
     if !has_label(nw, old_label)
         error("Node with label $old_label does not exist in the network.")
@@ -232,13 +268,29 @@ end
 # EDGE TYPE SPECIFIC METHODS
 # ------------------------------------------------ #
 
+"""Return physical pipe length in meters."""
 pipe_length(e::InsulatedPipe) = e.physical_params.length
+
+"""Alias for [`pipe_length`](@ref).
+
+This makes `length(pipe)` meaningful for `InsulatedPipe` and matches the package export list.
+"""
+Base.length(e::InsulatedPipe) = pipe_length(e)
+
+"""Return pipe inner diameter in meters."""
 inner_diameter(e::InsulatedPipe) = e.physical_params.inner_diameter
+
+"""Return thermal resistance (supply direction) in m·K/W."""
 heat_resistance_forward(e::InsulatedPipe) = e.physical_params.heat_resistance_forward
+
+"""Return thermal resistance (return direction) in m·K/W."""
 heat_resistance_backward(e::InsulatedPipe) = e.physical_params.heat_resistance_backward
 
+"""Compute water velocity in an `InsulatedPipe` in m/s.
+
+Returns `missing` if the pipe has no mass flow set.
+"""
 function water_velocity(e::InsulatedPipe)
-    # compute velocity of water in the pipe in m/s, it's important for controlling of turbulence
     if(e.mass_flow === missing)
         return missing
     end
@@ -250,8 +302,11 @@ function water_velocity(e::InsulatedPipe)
     return velocity
 end
 
+"""Compute water velocities for all pipe edges in the network.
+
+Returns a dictionary keyed by `(src_label, dst_label)`.
+"""
 function water_velocities(nw::Network)::Dict{Tuple{String, String}, Float64}
-    # compute velocities of water in all pipes in the network
     velocities = Dict{Tuple{String, String}, Float64}()
     for e in edges(nw)
         edge = nw[src(e), dst(e)]

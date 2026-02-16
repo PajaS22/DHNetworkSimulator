@@ -52,6 +52,7 @@ function edge_widths(mg::MetaGraph, max_width::Float64=5.0, min_width::Float64=1
     return ds_scaled
 end
 
+"""Human-readable edge label used on hover in `visualize_graph!`."""
 function edge_info_hover(e::T) where {T<:EdgeType}
     info = e.info * ", L=$(round(pipe_length(e), digits=1)) m, D=$(round(inner_diameter(e)*100, digits=1)) cm"  # label for edge types
     if !ismissing(e.mass_flow)
@@ -61,6 +62,7 @@ function edge_info_hover(e::T) where {T<:EdgeType}
 end
 edge_info_hover(::EmptyEdge) = ""
 edge_info(::EmptyEdge) = ""
+"""Human-readable edge label used by default in `visualize_graph!`."""
 function edge_info(e::T) where {T<:EdgeType} # non-hover label for edge types
     info = ""
     if !ismissing(e.mass_flow)
@@ -71,9 +73,16 @@ function edge_info(e::T) where {T<:EdgeType} # non-hover label for edge types
     end
     return info
 end
+"""Vectorized helper returning labels for all edges in a `MetaGraph`."""
 edge_infos(mg::MetaGraph) = [edge_info(mg[src, dst]) for (src, dst) in edge_labels(mg)]
 
 
+"""Visualize a `Network` using GraphMakie.
+
+Returns `(figure, axis, plot)` from `GraphMakie.graphplot`. If edge mass flows
+have been computed (e.g. via `steady_state_hydronynamics!`), the plot also
+shows flow-dependent edge styling.
+"""
 function visualize_graph!(nw::Network)
     mg = nw.mg
     # visualize the MetaGraph using GraphMakie

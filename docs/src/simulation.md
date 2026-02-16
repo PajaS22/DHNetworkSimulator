@@ -24,9 +24,8 @@ At a high level, for each step it:
 	`run_simulation` calls `check_network!` before the first step.
 	You do not need to call it manually as long as you constructed a valid directed tree with one producer and load leaves.
 
-```@docs
-run_simulation
-```
+API docs: [`run_simulation`](@ref), [`ProducerOutput`](@ref), [`SimulationResults`](@ref), [`plot_simulation_results`](@ref).
+
 
 Example of constant policy:
 
@@ -45,26 +44,17 @@ function policy(t, Tₐ, T_back)
 end
 ```
 ### Producer setpoint
-
-```@docs
-ProducerOutput
-```
+See [`ProducerOutput`](@ref).
 
 ## Simulation logs: 
 
 Simulation logs data in struct `SimulationResults`.
-
-```@docs
-SimulationResults
-```
+See [`SimulationResults`](@ref).
 
 ### Visualization of `SimulationResults`
 
 `SimulationResults` can be easily displayed using function `plot_simulation_results`.
-
-```@docs
-plot_simulation_results
-```
+See [`plot_simulation_results`](@ref).
 
 ## Minimal workflow (end-to-end)
 
@@ -76,7 +66,7 @@ The typical workflow is:
 4. call `run_simulation`,
 5. visualize time series via `plot_simulation_results`.
 
-## Examples
+## [Examples](@id simulation_examples)
 
 ### Example 1: sinusoidal temperature
 

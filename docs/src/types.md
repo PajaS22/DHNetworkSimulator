@@ -19,21 +19,7 @@ The package models a network as a directed graph where:
 	steady-state hydraulics step.
 
 ## Nodes
-
-```@docs
-NodeType
-NodeCommon
-JunctionNode
-LoadNode
-ProducerNode
-EmptyNode
-```
+See the API reference for: [`NodeType`](@ref), [`NodeCommon`](@ref), [`JunctionNode`](@ref), [`LoadNode`](@ref), [`ProducerNode`](@ref), [`EmptyNode`](@ref).
 
 ## Edges
-```@docs
-EdgeType
-EmptyEdge
-Plug
-InsulatedPipe
-PipeParams
-```
+See the API reference for: [`EdgeType`](@ref), [`EmptyEdge`](@ref), [`Plug`](@ref), [`InsulatedPipe`](@ref), [`PipeParams`](@ref).

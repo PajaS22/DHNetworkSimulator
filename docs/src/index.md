@@ -1,29 +1,29 @@
 # Distributed Heating Network Simulator
 
-This is the Documentation for [DHNetworkSimulator](https://github.com/PajaS22/DHNetworkSimulator).
+This is the documentation for **DHNetworkSimulator** ([source code on github](https://github.com/PajaS22/DHNetworkSimulator)).
 
-DHNetworkSimulator is a Julia package for building, visualizing, and simulating **district heating networks**. Network is represented as directed tree graph, root node is producer and leaf are consumers (loads).
+DHNetworkSimulator is a Julia package for building, visualizing, and simulating **district heating networks**. A network is modeled as a **directed, acyclic tree**: a single producer sits at the root, water flows through junctions, and consumers (loads) are typically leaves.
 
-Thermodynamics is solved using quazi-dynamic assumption, which makes the problem tractable. The assumption is that hydraulics (change in flow, pressures) has frequency much higher than thermics (change in temperature). In simple words, pressure moves in water with speed of sound and temperature moves mainly with advection (the hot water itself moves).
+The simulator uses a **quasi-dynamic** formulation to keep the problem tractable. At each time step, hydraulics (mass-flow distribution and pressures) are assumed to reach steady state much faster than temperature changes. Thermal dynamics are then dominated by advection (hot water moving through pipes) and heat losses to the ambient.
 
-We solve the dynamics in two steps:
-1. find steady state of hydraulics
-2. solve thermics by moving "plugs" of water. Consecutive plugs dont mix.
+Each time step is therefore solved in two stages:
+1. compute steady-state hydraulics,
+2. advance temperatures with a **plug-flow** model that transports discrete “plugs” (parcels) of water through pipes. Plugs do not mix inside a pipe; mixing happens at junctions when flows merge and converge.
 
-More on plug method in [Plug method](@ref).
+Simulations are typically **policy-driven**: you provide a `policy(t, Tₐ, T_back)` callback that returns the producer setpoints, and the simulator logs time series of temperatures, flows, and powers.
 
-small change
+More details on the thermal model are in [Plug method](@ref).
 
 
 ## Getting started
 To install the package, open the Julia REPL and type
 ```julia
-julia> using Pkg; Pkg.add("https://github.com/PajaS22/DHNetworkSimulator")
+julia> using Pkg; Pkg.add(url="https://github.com/PajaS22/DHNetworkSimulator")
 ```
 
 ### Examples
 
-The easiest way to get a feel for the API is to run one of the example scripts.
+The easiest way to get a feel for the API is to run one of the example scripts. You can find them after cloning the [repo](https://github.com/PajaS22/DHNetworkSimulator) in subfolder scripts.
 - `scripts/basic_network.jl`
 - `scripts/bigger_network.jl`
 
@@ -52,3 +52,5 @@ results = run_simulation(network, t, policy; T0_f=75.0, T0_b=60.0)
 # plot temperature of water entering loads
 plot_simulation_results(results, :T_load_in)
 ```
+
+More examples can be found in [Simulation examples](@ref simulation_examples).

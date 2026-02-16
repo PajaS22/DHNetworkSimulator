@@ -11,7 +11,7 @@ Each pipe contains a queue of discrete **plugs of water**, where every plug has:
 Plugs advect through pipes according to the current mass flows, exchange heat with the environment via a simple heat-loss model, and (optionally) lose heat at loads according to the load power demand.
 
 In this example image we can see, that with variable flow and temperature, in each period there may be multiple different sized plugs of different temperatures exiting a pipe.
-![plug_flow_example](plug_method.png)
+![plug_flow_example](figures/plug_method.png)
 *Figure: Explanation of plug method [doc. Ing. Zdeněk Hurák, Ph.D., CTU]*
 
 
@@ -166,4 +166,3 @@ where:
 - There is **no axial mixing** inside a pipe: plugs only merge when explicitly combined (e.g., at reporting points or junction return merging).
 - The plug representation is simplified over time by merging consecutive plugs with nearly identical temperature (`merge_same_temperature_plugs!`).
 - Stability and realism depend on choosing a reasonable Δt relative to flows and pipe volumes.
-
