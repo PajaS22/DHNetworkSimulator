@@ -2,7 +2,6 @@ using Documenter, DHNetworkSimulator
 
 makedocs(
     sitename="DHNetworkSimulator",
-    remotes = nothing,
     format = Documenter.HTML(repolink = "https://github.com/PajaS22/DHNetworkSimulator"),
     modules = [DHNetworkSimulator],
         workdir = joinpath(@__DIR__, ".."),
