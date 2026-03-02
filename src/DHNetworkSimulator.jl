@@ -20,7 +20,7 @@ export NodeType, EdgeType, NodeCommon
 export JunctionNode, LoadNode, ProducerNode, EmptyNode
 export InsulatedPipe, EmptyEdge, Plug, PipeParams
 export Network, NeighborDicts
-export EmptyNode, EmptyEdge
+export EmptyNode, EmptyEdge, ZeroPipe
 export InsulatedPipe, JunctionNode, LoadNode, ProducerNode
 
 include("network_creation.jl")

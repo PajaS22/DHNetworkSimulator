@@ -351,6 +351,10 @@ end
 InsulatedPipe(params::PipeParams) = InsulatedPipe("pipe", params)
 InsulatedPipe(length::Real) = InsulatedPipe("pipe"; length=float(length))
 
+# insulated pipe with zero length
+ZeroPipe(info::String) = InsulatedPipe(info;length=0.0, inner_diameter=0.0, heat_resistance_forward=0.0, heat_resistance_backward=0.0)
+ZeroPipe() = ZeroPipe("zero pipe")
+
 # ------------------------------------------------- #
 # NODE CONSTRUCTORS
 # ------------------------------------------------- #
