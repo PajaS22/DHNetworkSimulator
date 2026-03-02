@@ -333,6 +333,8 @@ end
 # PIPE CONSTRUCTORS
 # ------------------------------------------------- #
 
+PipeParams(;length::Real, inner_diameter::Real, heat_resistance_forward::Real=3.0, heat_resistance_backward::Real=4.0) = PipeParams(float(length), float(inner_diameter), float(heat_resistance_forward), float(heat_resistance_backward))
+
 function InsulatedPipe(info::String;
                         length::Float64=100.0,
                         inner_diameter::Float64=0.1,
