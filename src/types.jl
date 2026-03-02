@@ -220,9 +220,9 @@ end
 - `plugs_b`: plug queue for the backward (return) direction.
 
 # Constructors
-- `InsulatedPipe(; info="pipe", length=100.0, inner_diameter=0.1, heat_resistance_forward=3.0, heat_resistance_backward=4.0, mass_flow=missing, m_rel=missing)`: all-keyword constructor; physical params have sensible defaults.
-- `InsulatedPipe(; info="pipe", params::PipeParams, mass_flow=missing, m_rel=missing)`: all-keyword constructor accepting a pre-constructed `PipeParams`.
-- `InsulatedPipe(info::String, params::PipeParams; mass_flow=missing, m_rel=missing)`: build from a pre-constructed `PipeParams`.
+- `InsulatedPipe(; info="pipe", length=100.0, inner_diameter=0.1, heat_resistance_forward=3.0, heat_resistance_backward=4.0, mass_flow=missing, m_rel=missing)`: all-keyword constructor using individual pipe dimensions; physical params have sensible defaults.
+- `InsulatedPipe(; info="pipe", params::PipeParams, mass_flow=missing, m_rel=missing)`: all-keyword constructor accepting a pre-constructed `PipeParams`; individual dimension keywords are ignored when `params` is supplied.
+- `InsulatedPipe(info::String, params::PipeParams; mass_flow=missing, m_rel=missing)`: positional-style build from a pre-constructed `PipeParams`.
 - `InsulatedPipe(params::PipeParams; mass_flow=missing, m_rel=missing)`: same, with default `info="pipe"`.
 - `InsulatedPipe(length::Real)`: shorthand that sets only the pipe length; all other params take their defaults.
 """
@@ -325,18 +325,17 @@ end
 PipeParams(;length::Real, inner_diameter::Real, heat_resistance_forward::Real=3.0, heat_resistance_backward::Real=4.0) = PipeParams(float(length), float(inner_diameter), float(heat_resistance_forward), float(heat_resistance_backward))
 
 function InsulatedPipe(; info::String="pipe",
+                         params::Union{PipeParams, Nothing}=nothing,
                          length::Real=100.0,
                          inner_diameter::Real=0.1,
                          heat_resistance_forward::Real=3.0,
                          heat_resistance_backward::Real=4.0,
                          mass_flow=missing,
                          m_rel=missing)
-    params = PipeParams(float(length), float(inner_diameter),
-                        float(heat_resistance_forward), float(heat_resistance_backward))
-    return InsulatedPipe(info, params; mass_flow=mass_flow, m_rel=m_rel)
-end
-
-function InsulatedPipe(; info::String="pipe", params::PipeParams, mass_flow=missing, m_rel=missing)
+    if params === nothing
+        params = PipeParams(float(length), float(inner_diameter),
+                            float(heat_resistance_forward), float(heat_resistance_backward))
+    end
     return InsulatedPipe(info, params, mass_flow, m_rel, Vector{Plug}(), Vector{Plug}())
 end
 
