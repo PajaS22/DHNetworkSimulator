@@ -221,6 +221,7 @@ end
 
 # Constructors
 - `InsulatedPipe(; info="pipe", length=100.0, inner_diameter=0.1, heat_resistance_forward=3.0, heat_resistance_backward=4.0, mass_flow=missing, m_rel=missing)`: all-keyword constructor; physical params have sensible defaults.
+- `InsulatedPipe(; info="pipe", params::PipeParams, mass_flow=missing, m_rel=missing)`: all-keyword constructor accepting a pre-constructed `PipeParams`.
 - `InsulatedPipe(info::String, params::PipeParams; mass_flow=missing, m_rel=missing)`: build from a pre-constructed `PipeParams`.
 - `InsulatedPipe(params::PipeParams; mass_flow=missing, m_rel=missing)`: same, with default `info="pipe"`.
 - `InsulatedPipe(length::Real)`: shorthand that sets only the pipe length; all other params take their defaults.
@@ -333,6 +334,10 @@ function InsulatedPipe(; info::String="pipe",
     params = PipeParams(float(length), float(inner_diameter),
                         float(heat_resistance_forward), float(heat_resistance_backward))
     return InsulatedPipe(info, params; mass_flow=mass_flow, m_rel=m_rel)
+end
+
+function InsulatedPipe(; info::String="pipe", params::PipeParams, mass_flow=missing, m_rel=missing)
+    return InsulatedPipe(info, params, mass_flow, m_rel, Vector{Plug}(), Vector{Plug}())
 end
 
 function InsulatedPipe(info::String, params::PipeParams; mass_flow=missing, m_rel=missing)
