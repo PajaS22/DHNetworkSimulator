@@ -11,11 +11,11 @@ struct SimulationResults
         mass_flow_load::Matrix{Float64}
         mass_flow_producer::Vector{Float64}
         T_load_in::Matrix{Float64}
-        T_load_out::Matrix{Float64}
-        T_producer_in::Vector{Float64}
+        T_load_out::Union{Matrix{Float64}, Nothing}
+        T_producer_in::Union{Vector{Float64}, Nothing}
         T_producer_out::Vector{Float64}
-        power_load::Matrix{Float64}
-        power_producer::Vector{Float64}
+        power_load::Union{Matrix{Float64}, Nothing}
+        power_producer::Union{Vector{Float64}, Nothing}
         load_labels::Dict{String, Int}
 end
 ```
@@ -27,11 +27,11 @@ end
 - `mass_flow_load`: load mass flows in kg/s. Size `N × nloads`.
 - `mass_flow_producer`: producer mass flow in kg/s. Length `N`.
 - `T_load_in`: temperature entering each load (supply side) in °C. Size `N × nloads`.
-- `T_load_out`: temperature leaving each load (return side) in °C. Size `N × nloads`.
-- `T_producer_in`: return temperature entering the producer in °C. Length `N`.
+- `T_load_out`: temperature leaving each load (return side) in °C. Size `N × nloads`. `Nothing` in forward-only mode.
+- `T_producer_in`: return temperature entering the producer in °C. Length `N`. `Nothing` in forward-only mode.
 - `T_producer_out`: supply temperature leaving the producer in °C. Length `N`.
-- `power_load`: load power consumption in kW. Size `N × nloads`.
-- `power_producer`: producer power output in MW (computed from mass flow and ΔT). Length `N-1`.
+- `power_load`: load power consumption in kW. Size `N × nloads`. `Nothing` in forward-only mode.
+- `power_producer`: producer power output in MW (computed from mass flow and ΔT). Length `N-1`. `Nothing` in forward-only mode.
 - `load_labels`: mapping from load label to column index used in the `*_load` matrices.
 
 # Indexing
@@ -51,11 +51,11 @@ struct SimulationResults
     mass_flow_load::Matrix{Float64}         # mass flows at load nodes (rows: time steps, columns: load nodes)
     mass_flow_producer::Vector{Float64}     # mass flow at producer node
     T_load_in::Matrix{Float64}              # temperatures at load nodes entering (rows: time steps, columns: load nodes)
-    T_load_out::Matrix{Float64}             # temperatures at load nodes exiting (rows: time steps, columns: load nodes)
-    T_producer_in::Vector{Float64}          # input temperature entering producer node (after backward simulation step)
+    T_load_out::Union{Matrix{Float64}, Nothing}     # temperatures at load nodes exiting (rows: time steps, columns: load nodes); Nothing in forward-only mode
+    T_producer_in::Union{Vector{Float64}, Nothing}  # input temperature entering producer node (after backward simulation step); Nothing in forward-only mode
     T_producer_out::Vector{Float64}         # output temperature exiting producer node (before forward simulation step)
-    power_load::Matrix{Float64}             # (kW) power consumption at load nodes (rows: time steps, columns: load nodes)
-    power_producer::Vector{Float64}         # (MW) power output at producer node
+    power_load::Union{Matrix{Float64}, Nothing}     # (kW) power consumption at load nodes (rows: time steps, columns: load nodes); Nothing in forward-only mode
+    power_producer::Union{Vector{Float64}, Nothing} # (MW) power output at producer node; Nothing in forward-only mode
     load_labels::Dict{String, Int}          # labels of load nodes corresponding to columns
 end
 # constructor with keyword arguments for better readability
@@ -106,10 +106,14 @@ function Base.getindex(sr::SimulationResults, label::String, s::Symbol)
     if isnothing(idx)
         error("Load label $label not found in SimulationResults.")
     end
+    field_value = getproperty(sr, s)
+    if isnothing(field_value)
+        return nothing
+    end
     if occursin("load", String(s))
-        return getproperty(sr, s)[:, idx]
+        return field_value[:, idx]
     else
-        return getproperty(sr, s)
+        return field_value
     end
 end
 function Base.getindex(sr::SimulationResults, s::Symbol)
@@ -137,7 +141,7 @@ Base.show(io::IO, sr::SimulationResults) = print(io, "SimulationResults with $(l
 """Run a quasi-dynamic simulation of a district heating network.
 
 ```julia
-run_simulation(network, sim_time, policy; T0_f=60.0, T0_b=25.0, ambient_temperature=nothing)
+run_simulation(network, sim_time, policy; T0_f=60.0, T0_b=25.0, ambient_temperature=nothing, forward_only=false)
 ```
 
 This is the main entry point for time stepping.
@@ -146,8 +150,8 @@ REPEAT for N time steps:
 1. computes a steady-state hydraulic solution (mass flow distribution),
 2. advances thermal dynamics using the plug-flow method:
      - forward/supply advection producer → loads,
-     - heat consumption at loads,
-     - backward/return advection loads → producer,
+     - heat consumption at loads (skipped if `forward_only=true`),
+     - backward/return advection loads → producer (skipped if `forward_only=true`),
      - heat losses to ambient.
 
 See [Plug method](@ref) for the underlying model.
@@ -162,14 +166,17 @@ See [Plug method](@ref) for the underlying model.
     - `Vector{Float64}`: time in seconds.
     - `Vector{DateTime}`: timestamps (Δt is interpreted in seconds).
 - `policy::Function`: callback returning `ProducerOutput`.
-    - Signature: `policy(t, Tₐ, T_back)::ProducerOutput`
+    - Signature in normal mode: `policy(t, Tₐ, T_back)::ProducerOutput`
+    - Signature in forward-only mode: `policy(t, Tₐ)::ProducerOutput`
+    - `t` is current time (Float64 in seconds or DateTime).
     - `Tₐ` is ambient temperature at time `t` or `nothing`.
-    - `T_back` is the return temperature entering the producer (in previous time step `k-1`).
+    - `T_back` is the return temperature entering the producer in °C (from previous time step `k-1`). Only provided in normal mode, not in forward-only mode.
 
 # Keyword Arguments
 - `T0_f`: initial temperature forward part of the network (producer → loads) (°C).
 - `T0_b`: initial temperature in backward part of the network (loads → producer) (°C).
 - `ambient_temperature`: optional `Vector{Float64}` of ambient (outdoor/atmospheric) temperatures (°C), length must match `sim_time`.
+- `forward_only`: if `true`, only forward simulation is performed (no power consumption or backward flow). Default `false`.
 
 # Returns
 - `SimulationResults`: time series of temperatures, flows, and powers.
@@ -179,7 +186,7 @@ See [Plug method](@ref) for the underlying model.
 - Time steps must be equally spaced.
 """
 function run_simulation(network::Network, sim_time::Union{Vector{Float64}, Vector{DateTime}}, policy::Function; 
-                        T0_f::Float64=60.0, T0_b::Float64=25.0, ambient_temperature::Union{Vector{Float64}, Nothing}=nothing)::SimulationResults
+                        T0_f::Float64=60.0, T0_b::Float64=25.0, ambient_temperature::Union{Vector{Float64}, Nothing}=nothing, forward_only::Bool=false)::SimulationResults
     # simulate dynamics of the DH Network
     # results are y(t) = f(x(t), u(t)), where u(t) are inputs: (mass_flow, input_temperature) for source node
     # x0 is initial state of the network ... in default variant we fill the pipes with water of 25 °C
@@ -208,7 +215,8 @@ function run_simulation(network::Network, sim_time::Union{Vector{Float64}, Vecto
     # ckeck policy function output for the first time step
     try
         Tₐ = isnothing(ambient_temperature) ? nothing : ambient_temperature[1]
-        if policy(sim_time[1], Tₐ, T0_b) isa ProducerOutput
+        test_output = forward_only ? policy(sim_time[1], Tₐ) : policy(sim_time[1], Tₐ, T0_b)
+        if test_output isa ProducerOutput
             # ok
         else
             error("Policy function must return a ProducerOutput struct!")
@@ -227,10 +235,10 @@ function run_simulation(network::Network, sim_time::Union{Vector{Float64}, Vecto
     results_mass_flow_producer = Vector{Float64}(undef, N)
     results_mass_flow_load = Matrix{Float64}(undef, N, num_loads)
     results_temperature_producer_out = Vector{Float64}(undef, N)
-    results_temperature_producer_in = Vector{Float64}(undef, N)
+    results_temperature_producer_in = forward_only ? nothing : Vector{Float64}(undef, N)
     results_temperature_load_in = Matrix{Float64}(undef, N, num_loads)
-    results_temperature_load_out = Matrix{Float64}(undef, N, num_loads)
-    results_power_consumption = Matrix{Float64}(undef, N, num_loads)
+    results_temperature_load_out = forward_only ? nothing : Matrix{Float64}(undef, N, num_loads)
+    results_power_consumption = forward_only ? nothing : Matrix{Float64}(undef, N, num_loads)
     
     # mapping from load node label to column index in results matrices...
     load_labels_cols = Dict(label => i for (i, label) in enumerate(network.load_labels)) 
@@ -239,8 +247,12 @@ function run_simulation(network::Network, sim_time::Union{Vector{Float64}, Vecto
     for i in 1:N
         # GET INPUTS FOR THIS TIME STEP
         Tₐ = isnothing(ambient_temperature) ? nothing : ambient_temperature[i]
-        T_back = i > 1 ? results_temperature_producer_in[i-1] : T0_b 
-        input = policy(sim_time[i], Tₐ, T_back)
+        if forward_only
+            input = policy(sim_time[i], Tₐ)
+        else
+            T_back = i > 1 ? results_temperature_producer_in[i-1] : T0_b 
+            input = policy(sim_time[i], Tₐ, T_back)
+        end
 
         results_temperature_producer_out[i] = input.temperature
         results_mass_flow_producer[i] = input.mass_flow
@@ -258,27 +270,29 @@ function run_simulation(network::Network, sim_time::Union{Vector{Float64}, Vecto
             results_mass_flow_load[i, col_idx] = plug.m / Δt
         end
 
-        # POWER CONSUMPTION STEP
-        Tₐ = isnothing(ambient_temperature) ? 15.0 : ambient_temperature[i] # use 15 °C as default ambient temperature
-        for load_label in keys(output_plugs)
-            col_idx = load_labels_cols[load_label]
-            # power depends on outdoor temperature
-            P = power_consumption(network[load_label], Tₐ)
-            results_power_consumption[i, col_idx] = P / 1000.0 # log power consumption in kW
-            
-            # cool plug according to power consumed before feeding it back to return flow
-            consume_power!(output_plugs[load_label], P, Δt)
-            results_temperature_load_out[i, col_idx] = output_plugs[load_label].T
-        end
+        # POWER CONSUMPTION STEP (skip in forward-only mode)
+        if !forward_only
+            Tₐ = isnothing(ambient_temperature) ? nothing : ambient_temperature[i] # use 15 °C as default ambient temperature
+            for load_label in keys(output_plugs)
+                col_idx = load_labels_cols[load_label]
+                # power depends on outdoor temperature
+                P = power_consumption(network[load_label], Tₐ)
+                results_power_consumption[i, col_idx] = P / 1000.0 # log power consumption in kW
+                
+                # cool plug according to power consumed before feeding it back to return flow
+                consume_power!(output_plugs[load_label], P, Δt)
+                results_temperature_load_out[i, col_idx] = output_plugs[load_label].T
+            end
 
-        # BACKWARD SIMULATION STEP
-        incoming_plug = time_step_thermal_dynamics_backward!(network, Δt, output_plugs, Tₐ)
-        results_temperature_producer_in[i] = incoming_plug.T
+            # BACKWARD SIMULATION STEP
+            incoming_plug = time_step_thermal_dynamics_backward!(network, Δt, output_plugs, Tₐ)
+            results_temperature_producer_in[i] = incoming_plug.T
+        end
     end
 
     # compute producer power output in MW based on mass flow and temperature difference between producer input and output
     # P[k] = ̇m[k] * c * (T_out[k] - T_in[k-1]) / 1_000_000.0 to convert from W to MW
-    power_producer = @. (results_temperature_producer_out[2:end] - results_temperature_producer_in[1:end-1]) * results_mass_flow_producer[1:end-1] * WATER_SPECIFIC_HEAT / 1_000_000.0 # in MW
+    power_producer = forward_only ? nothing : @. (results_temperature_producer_out[2:end] - results_temperature_producer_in[1:end-1]) * results_mass_flow_producer[1:end-1] * WATER_SPECIFIC_HEAT / 1_000_000.0 # in MW
 
     return SimulationResults(time=sim_time,
                             mass_flow_load=results_mass_flow_load,
@@ -416,8 +430,10 @@ function fill_pipes_with_initial_temperature!(nw::Network, temperature_f::Float6
             m_total = WATER_DENSITY * V  # total mass in kg
             empty!(edge.plugs_f)
             empty!(edge.plugs_b)
-            push!(edge.plugs_f, Plug(temperature_f, m_total))
-            push!(edge.plugs_b, Plug(temperature_b, m_total))
+            if m_total > 0
+                push!(edge.plugs_f, Plug(temperature_f, m_total))
+                push!(edge.plugs_b, Plug(temperature_b, m_total))
+            end
         end
     end
 end
@@ -644,6 +660,7 @@ end
 
 """Combine multiple plugs into a single mass-weighted average plug."""
 function combine_plugs(plugs::Vector{Plug})::Plug
+    @assert !isempty(plugs)
     total_mass = sum(p.m for p in plugs)
     if total_mass == 0.0
         return Plug(25.0, 0.0) # default temperature for zero mass
@@ -733,6 +750,8 @@ function power_consumption(node::LoadNode, Tₐ::Float64)::Float64
     end
     return P * 1000.0 # convert from kW to W
 end
+power_consumption(node::LoadNode, Tₐ::Nothing) = 0.0
+
 
 """Reduce a plug temperature by consuming `power` over a time step.
 
@@ -763,6 +782,8 @@ function merge_water_plug_vectors!(plug_vectors::Vector{Vector{Plug}})::Vector{P
         return plug_vectors[1] # no need to merge if there is only one vector
     end
 
+    @assert !any(isempty.(plug_vectors))
+
 
     change_points = Set{Float64}()
     total_masses = [sum(p.m for p in plugs) for plugs in plug_vectors]
@@ -776,29 +797,60 @@ function merge_water_plug_vectors!(plug_vectors::Vector{Vector{Plug}})::Vector{P
 
     change_points = sort(collect(change_points))
 
+    # filter change points so there are not two too close to each other
+    atol_kg = 1e-3 # tolerance of 1g ... that is the smallest plug vector that we will merge
+    max_total_mass = maximum(total_masses)
+
 
     # now combine plugs between change points by mass-weighted average of temperature
     merged_plugs = Vector{Plug}()
     t_prev = 0.0
-    for t in sort(collect(change_points))
+    for t in change_points
+
+        # we dont want to work with this small plugs
+        if (t-t_prev)*max_total_mass < atol_kg
+            continue
+        end
+
+        if all(isempty.(plug_vectors)) # we already added the small drops to the last one interval
+            break
+        end
+
         plugs_at_t = Vector{Plug}()
         for i in eachindex(plug_vectors)
             target_mass = (t-t_prev) * total_masses[i]
-            p = popfirst!(plug_vectors[i])
-            if !isapprox(p.m, target_mass; atol=1e-6)
-                # only part of the plug is in this interval
-                # if remaining part is very small, throw away
-                pushfirst!(plug_vectors[i], Plug(p.T, p.m - target_mass)) # put the remaining part back to the front of the queue
-                p = Plug(p.T, target_mass) # take only the part of the plug that is in this interval
+            acc_mass = 0
+            while acc_mass < target_mass && !isempty(plug_vectors[i])
+                p = popfirst!(plug_vectors[i])
+                
+                if acc_mass + p.m > target_mass && p.m - (target_mass - acc_mass) >= atol_kg
+                    # only part of the plug is in this interval
+                    pushfirst!(plug_vectors[i], Plug(p.T, p.m - (target_mass - acc_mass))) # put the remaining part back to the front of the queue
+                    p = Plug(p.T, (target_mass - acc_mass)) # take only the part of the plug that is in this interval
+                end
+                push!(plugs_at_t, p)
+                acc_mass += p.m
             end
-            push!(plugs_at_t, p)
         end
         t_prev = t
+
+        if any(isempty.(plug_vectors)) # if any of the branches in empty, add the remaining little drops if there are any
+            # add all the other remaining small plugs at the end
+            for i in eachindex(plug_vectors)
+                while !isempty(plug_vectors[i])
+                    push!(plugs_at_t, popfirst!(plug_vectors[i]))
+                end
+            end
+            @assert all(isempty.(plug_vectors))
+        end
+        
         push!(merged_plugs, combine_plugs(plugs_at_t)) # combine plugs at this change point into one plug
     end
 
     # there should no plugs remain in the original vectors
-    @assert all(isempty, plug_vectors)
+    if !all(isempty, plug_vectors)
+        @show plug_vectors
+    end
 
     merge_same_temperature_plugs!(merged_plugs; tol=1e-2) # simplify the result by merging plugs with almost the same temperature
     
@@ -829,12 +881,14 @@ It performs:
 function time_step_thermal_dynamics!(nw::Network, Δt::Float64, input::ProducerOutput; ambient_temperature::Union{Float64, Nothing}=nothing)
     output_plugs = time_step_thermal_dynamics_forward!(nw, Δt, input.temperature, ambient_temperature)
 
-    Tₐ_load = isnothing(ambient_temperature) ? 15.0 : ambient_temperature
-    for load_label in keys(output_plugs)
-        P = power_consumption(nw[load_label], Tₐ_load)
-        consume_power!(output_plugs[load_label], P, Δt)
+    if !isnothing(ambient_temperature)
+        Tₐ_load = ambient_temperature
+        for load_label in keys(output_plugs)
+            P = power_consumption(nw[load_label], Tₐ_load)
+            consume_power!(output_plugs[load_label], P, Δt)
+        end
     end
 
-    incoming_plug = time_step_thermal_dynamics_backward!(nw, Δt, output_plugs, Tₐ_load)
+    incoming_plug = time_step_thermal_dynamics_backward!(nw, Δt, output_plugs, ambient_temperature)
     return output_plugs, incoming_plug
 end
