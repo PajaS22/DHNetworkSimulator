@@ -17,6 +17,9 @@ julia --project -e "using Pkg; Pkg.test()"
 
 # Run a single test file
 julia --project test/network_tests.jl
+julia --project test/constructor_tests.jl
+julia --project test/network_creation_tests.jl
+julia --project test/physics_tests.jl
 julia --project test/simulation_tests.jl
 
 # Run example scripts
@@ -44,7 +47,7 @@ julia --project scripts/basic_network.jl
 
 **Lazy neighbor cache**: `NeighborDicts` in `Network` is rebuilt on demand. Any topology modification must mark it dirty; `check_and_update_neighbor_dicts!` rebuilds it.
 
-**Two plug queues per pipe**: `InsulatedPipe` has both `plugs_f` (supply/forward) and `plugs_b` (return/backward). These are separate `DataStructures.Queue{Plug}` objects.
+**Two plug queues per pipe**: `InsulatedPipe` has both `plugs_f` (supply/forward) and `plugs_b` (return/backward). These are `Vector{Plug}` — front of the vector is the pipe outlet.
 
 **Tree-only topology**: `check_network!` (called at simulation start) enforces that the graph is a DAG, has exactly one `ProducerNode`, and all nodes connect back to the producer.
 
@@ -79,4 +82,4 @@ function policy(t, T_ambient) -> ProducerOutput(mass_flow=..., temperature=...)
 
 ### GLMakie Environment Guard
 
-`DHNetworkSimulator.jl` skips loading GLMakie when `CI=true` is set in the environment (for headless GitHub Actions). Visualization functions require GLMakie.
+`DHNetworkSimulator.jl` skips loading GLMakie when `GITHUB_ACTIONS=true` is set in the environment (for headless GitHub Actions). Visualization functions require GLMakie.
