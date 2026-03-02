@@ -44,7 +44,7 @@ Convenience accessors are provided:
 
 # Notes
 - All matrices are organized as `(time step, load index)`.
-- `power_producer` has length `N-1` because the producer heats the water that entered in in *previous!* time step.
+- `power_producer` has length `N-1` because the producer heats water that arrived from the *previous* time step — so there is one fewer value than time steps.
 """
 struct SimulationResults
     time::Union{Vector{Float64}, Vector{DateTime}}  # time vector
@@ -154,7 +154,8 @@ REPEAT for N time steps:
      - backward/return advection loads → producer (skipped if `forward_only=true`),
      - heat losses to ambient.
 
-See [Plug method](@ref) for the underlying model.
+The thermal model uses the plug-flow method: water is represented as discrete slugs
+(see `Plug`) that are advected through the pipes each time step.
 
 
 # Output
@@ -320,6 +321,15 @@ This is an internal step of [`steady_state_hydronynamics!`](@ref).
 function set_relative_mass_flows!(nw::Network)
     # iterate over nodes from leaves to root and set on each edge relative mass flow coefficient m_rel
     # we will do iterative post-order DFS traversal
+
+    # first check that all leaf nodes have m_rel set
+    for node in nw.load_labels
+        if outdegree(nw, node) == 0 # leaf node
+            if ismissing(nw[node].m_rel)
+                error("Leaf node $(nw[node].common.info) has undefined m_rel. Please set m_rel on all load nodes before calling steady_state_hydrodynamics!")
+            end
+        end
+    end
 
     root = nw.producer_label
     if root === nothing
@@ -734,7 +744,9 @@ end
 
 """Compute load power demand as a function of outdoor temperature.
 
-Returns power in Watts.
+Evaluates the quadratic curve `P(Tₐ) = p₀ + p₁·Tₐ + p₂·Tₐ²` stored in the node's `load` field.
+The curve is clamped at its minimum so that power never increases above a certain outdoor temperature.
+Returns power in **Watts** (the load coefficients are in kW — conversion is handled internally).
 """
 function power_consumption(node::LoadNode, Tₐ::Float64)::Float64
     # compute power consumption of a load node based on outdoor temperature and load coefficients
@@ -873,7 +885,7 @@ It performs:
 - `input::ProducerOutput`: producer setpoints for this step.
 
 # Keyword Arguments
-- `ambient_temperature`: outdoor/ambient temperature in °C (or `nothing`). When `nothing`, a default of 15°C is used for load demand.
+- `ambient_temperature`: outdoor temperature in °C, or `nothing`. When `nothing`, load power consumption is skipped (loads don't cool the water) and pipe heat losses are not applied.
 
 # Returns
 - `(output_plugs, incoming_plug)` where `output_plugs` maps load labels to their inlet plug, and `incoming_plug` represents the return temperature entering the producer.

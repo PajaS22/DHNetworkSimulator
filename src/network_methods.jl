@@ -33,7 +33,7 @@ index_for(nw::Network, label::String) = MetaGraphsNext.code_for(nw.mg, label)
 
 # indexing edges
 has_edge(nw::Network, src::Int, dst::Int) = Graphs.has_edge(nw.mg, src, dst)
-# has_edge(nw::Network, src::Int, dst::Int) = has_edge(nw, label_for(nw.mg, src), label_for(nw.mg, dst))
+has_edge(nw::Network, src::String, dst::String) = Graphs.has_edge(nw.mg, index_for(nw, src), index_for(nw, dst))
 
 Base.setindex!(nw::Network, e::ET, src::String, dst::String) where {ET<:EdgeType} = (nw.mg[src, dst] = e)
 function index_for(nw::Network, src::String, dst::String)
@@ -118,6 +118,19 @@ function rem_node!(nw::Network, label::String)
 end
 rem_node!(nw::Network, idx::Integer) = rem_node!(nw, label_for(nw, idx))
 
+"""Remove an edge from a `Network` by its source and destination string labels.
+
+Both endpoint nodes remain in the network — only the connection between them is deleted.
+`producer_label` and `load_labels` are not affected.
+"""
+function remove_edge!(nw::Network, src::String, dst::String)
+    if !has_edge(nw, src, dst)
+        error("Edge does not exist between $src and $dst")
+    end
+    Graphs.rem_edge!(nw.mg, index_for(nw, src), index_for(nw, dst))
+    nw.neighbor_dicts.need_rebuild = true
+end
+
 # getting all node data and edge data
 """Return a vector of all node data stored in a `Network` (in label order)."""
 vertices_data(nw::Network) = [nw.mg[v] for v in labels(nw.mg)]
@@ -137,22 +150,12 @@ all_labels(nw::Network) = [l for l in MetaGraphsNext.labels(nw.mg)]
 @forward_methods Network field=mg Graphs.degree(_,i::Int) Graphs.outdegree(_,i::Int) Graphs.inneighbors(_,i::Int) Graphs.outneighbors(_,i::Int)
 
 # my implementation of neighbors and degree functions using the neighbor dicts for efficient access during simulation
-"""Return outgoing neighbor labels for a node label.
-
-This is the `Network`-specific overload that returns **string labels** (not
-Graphs.jl vertex indices). Neighbor caches are rebuilt automatically when
-needed.
-"""
+"""Return the labels of all nodes that `label` has outgoing edges to."""
 function outneighbors(nw::Network, label::String)
     check_and_update_neighbor_dicts!(nw)
     nw.neighbor_dicts.outneighbors[label]
 end
-"""Return incoming neighbor labels for a node label.
-
-This is the `Network`-specific overload that returns **string labels** (not
-Graphs.jl vertex indices). Neighbor caches are rebuilt automatically when
-needed.
-"""
+"""Return the labels of all nodes that have edges pointing into `label`."""
 function inneighbors(nw::Network, label::String)
     check_and_update_neighbor_dicts!(nw)
     nw.neighbor_dicts.inneighbors[label]
@@ -271,10 +274,7 @@ end
 """Return physical pipe length in meters."""
 pipe_length(e::InsulatedPipe) = e.physical_params.length
 
-"""Alias for [`pipe_length`](@ref).
-
-This makes `length(pipe)` meaningful for `InsulatedPipe` and matches the package export list.
-"""
+"""Same as [`pipe_length`](@ref) — returns the pipe length in meters."""
 Base.length(e::InsulatedPipe) = pipe_length(e)
 
 """Return pipe inner diameter in meters."""
@@ -285,6 +285,12 @@ heat_resistance_forward(e::InsulatedPipe) = e.physical_params.heat_resistance_fo
 
 """Return thermal resistance (return direction) in m·K/W."""
 heat_resistance_backward(e::InsulatedPipe) = e.physical_params.heat_resistance_backward
+
+"""Return mass flow in kg/s."""
+mass_flow(e::InsulatedPipe) = e.mass_flow
+
+"""Return relative mass flow coefficient (m_rel) for a pipe."""
+m_rel(e::InsulatedPipe) = e.m_rel
 
 """Compute water velocity in an `InsulatedPipe` in m/s.
 
@@ -304,7 +310,8 @@ end
 
 """Compute water velocities for all pipe edges in the network.
 
-Returns a dictionary keyed by `(src_label, dst_label)`.
+Returns a `Dict{Tuple{String,String}, Float64}` keyed by `(src_label, dst_label)`, with velocity in m/s.
+Requires mass flows to be set first (e.g. via `steady_state_hydronynamics!`).
 """
 function water_velocities(nw::Network)::Dict{Tuple{String, String}, Float64}
     velocities = Dict{Tuple{String, String}, Float64}()

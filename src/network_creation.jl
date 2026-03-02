@@ -31,7 +31,12 @@ function Network(graph::SimpleDiGraph)
     return Network(mg, nothing, Set{String}(), NeighborDicts())
 end
 
-"Fill the physical parameters of the edges in the network based on the provided `pipe_params` dictionary."
+"""Replace `EmptyEdge` placeholders with real `InsulatedPipe` objects.
+
+`pipe_params` is a `Dict{Tuple{Int,Int}, PipeParams}` where each key is a
+`(src_index, dst_index)` pair using the default integer labels assigned by
+`Network(g::SimpleDiGraph)` (i.e. the vertex numbers from the original graph).
+"""
 function fill_physical_params!(network::Network, pipe_params::Dict{Tuple{Int,Int}, PipeParams})
     for (u, v) in keys(pipe_params)
         if has_edge(network, u, v)
@@ -42,7 +47,11 @@ function fill_physical_params!(network::Network, pipe_params::Dict{Tuple{Int,Int
     end
 end
 
-"Fill the positions of the nodes in the network based on the provided `node_positions` dictionary."
+"""Set `(x, y)` coordinates for nodes in the network.
+
+`node_positions` maps label → `(x, y)` tuple. Only nodes that are not `EmptyNode` are updated.
+Positions are used by the visualization (`visualize_graph!`) but have no effect on simulation.
+"""
 function fill_node_positions!(network::Network, node_positions::Dict{String, Tuple{Float64, Float64}})
     for (label, pos) in node_positions
         if has_label(network, label)
@@ -59,8 +68,10 @@ end
 
 """Rename the nodes in the network according to the provided `labels` vector.
 
-The order of labels should correspond to the order in which were the nodes added to the graph
-(default labels are "1", "2", ..., "n")."""
+The order of labels must match the order in which nodes were added to the graph.
+When building from a `SimpleDiGraph`, the default labels are `"1"`, `"2"`, ..., `"n"`, so
+`labels[1]` replaces `"1"`, `labels[2]` replaces `"2"`, and so on.
+"""
 function name_nodes!(network::Network, labels::Vector{String})
     # careful! The internal graph cannot rename the labels, so we have to remove a node and add it back again with the new label
     # tricky part is the removal, if we remove a node v, all the nodes v+k are reindexed so that the total |V| is reduced by 1
@@ -75,17 +86,17 @@ function name_nodes!(network::Network, labels::Vector{String})
     end
 end
 
-"""Identify the producer and load nodes in the network.
+"""Classify nodes as producer, loads, or junctions based on their connectivity.
 
-This comes in handy in situation when the graph was provided without node types (e.g. from a file) 
-and we want to classify the nodes based on their connectivity.
+Useful when building a network from a bare graph (e.g. loaded from a file) where node
+types haven't been assigned yet. The classification rules are:
 
-This function classifies nodes based on their degree:
-- Nodes with outdegree > 0 and indegree == 0 are classified as `ProducerNode` (source).
-- Nodes with outdegree == 0 and indegree > 0 are classified as `LoadNode` (sink).
-- Nodes with outdegree > 0 and indegree > 0 are classified as `JunctionNode`.
-- Nodes with outdegree == 0 and indegree == 0 are classified as `EmptyNode` (isolated).
-    these should not appear in a valid network!
+- `indegree == 0`, `outdegree > 0` → `ProducerNode` (the root / heat source)
+- `indegree > 0`,  `outdegree == 0` → `LoadNode` (a leaf / consumer)
+- `indegree > 0`,  `outdegree > 0` → `JunctionNode` (branching point)
+- `indegree == 0`, `outdegree == 0` → `EmptyNode` (isolated — shouldn't appear in a valid network)
+
+Also updates `network.producer_label` and `network.load_labels` accordingly.
 """
 function identify_producer_and_loads!(network::Network)
     # identify producer node (source) and load nodes (sinks)
@@ -107,10 +118,13 @@ function identify_producer_and_loads!(network::Network)
     end
 end
 
-"""Fill the load specifications: (power coefficients and relative mass flow)
+"""Set load power curve and relative mass-flow coefficient for each load node.
 
-   - `pwr_coefs` specifies tuples of power coefficients (p0, p1, p2) for the quadratic power curve.
-   - `m_r` specifies relative mass flow coefficients
+- `pwr_coefs`: `Dict{String, NTuple{3,Float64}}` mapping label → `(p₀, p₁, p₂)` for the quadratic
+  demand curve `P(Tₐ) = p₀ + p₁·Tₐ + p₂·Tₐ²` (power in kW, temperature in °C).
+- `m_r`: `Dict{String, Float64}` mapping label → relative mass-flow coefficient.
+
+Every load node in the network must have an entry in both dictionaries.
 """
 function fill_load_specs!(network::Network, pwr_coefs::Dict{String, NTuple{3, Float64}}, m_r::Dict{String, Float64})
     for label in network.load_labels
@@ -124,5 +138,17 @@ function fill_load_specs!(network::Network, pwr_coefs::Dict{String, NTuple{3, Fl
         else
             error("Relative mass flow coefficient for node $(label) not found in m_r.")
         end
+    end
+end
+
+"""Set the same load power curve and mass-flow coefficient for every load node in the network.
+
+Handy for quick setups where all loads share the same parameters.
+Defaults to zero power curve and `m_r=1.0` (equal flow split).
+"""
+function fill_load_specs!(network::Network; pwr_coefs = (0.0, 0.0, 0.0), m_r = 1.0)
+    for label in network.load_labels
+        set_load_pwr_coefs!(network, label, pwr_coefs)
+        set_load_m_rel!(network, label, m_r)
     end
 end

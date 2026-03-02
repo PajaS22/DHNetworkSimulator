@@ -34,10 +34,11 @@ export vertices_data, edges_data
 export print_edges, print_nodes
 export ne, nv, vertices, edges, all_labels
 export index_for, has_label
-export rem_node!, rename_node!
-export length, inner_diameter, heat_resistance_forward, heat_resistance_backward
+export rem_node!, rename_node!, remove_edge!
+export pipe_length, length, inner_diameter, heat_resistance_forward, heat_resistance_backward, mass_flow, m_rel
 export water_velocities, water_velocity
 export outneighbors, inneighbors, neighbors, degree, outdegree, indegree
+export is_zero_pipe
 
 include("printing.jl")
 

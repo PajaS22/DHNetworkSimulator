@@ -114,6 +114,46 @@
         nw["load4"] = EmptyNode()
         @test isempty(nw.load_labels)
     end
+    @testset "outneighbors" begin
+        nw = Network()
+        nw["a"] = EmptyNode()
+        nw["b"] = EmptyNode()
+        nw["c"] = EmptyNode()
+        nw["a", "b"] = EmptyEdge()
+        nw["a", "c"] = EmptyEdge()
+        @test sort(DHN.outneighbors(nw, "a")) == ["b", "c"]
+        @test DHN.outneighbors(nw, "b") == []
+    end
+    @testset "all_labels" begin
+        nw = Network()
+        nw["x"] = EmptyNode()
+        nw["y"] = EmptyNode()
+        nw["z"] = EmptyNode()
+        @test Set(all_labels(nw)) == Set(["x", "y", "z"])
+    end
+    @testset "rename_node!" begin
+        nw = Network()
+        nw["old"] = JunctionNode("original info")
+        nw["other"] = EmptyNode()
+        nw["old", "other"] = EmptyEdge()
+
+        rename_node!(nw, "old", "new")
+        @test !has_label(nw, "old")
+        @test has_label(nw, "new")
+        @test nw["new"].common.info == "original info"  # node data preserved
+        @test DHN.outneighbors(nw, "new") == ["other"]  # outgoing edge preserved
+        @test DHN.inneighbors(nw, "other") == ["new"]   # incoming edge preserved
+    end
+    @testset "remove_edge!" begin
+        nw = Network()
+        nw["a"] = EmptyNode()
+        nw["b"] = EmptyNode()
+        nw["a", "b"] = EmptyEdge()
+        @test ne(nw) == 1
+        remove_edge!(nw, "a", "b")
+        @test ne(nw) == 0
+        @test nv(nw) == 2  # nodes still present
+    end
     @testset "producer label" begin
         # keep track of producer node id when adding, removing and replacing producer node
         nw = Network()

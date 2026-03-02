@@ -86,8 +86,9 @@ The `load` field defines a quadratic power-demand curve as a function of ambient
 ``P(T_a) = p_0 + p_1 T_a + p_2 T_a^2,``
 where the power is in kW and the ambient temperature is in °C.
 
-The `m_rel` field is a *relative mass-flow coefficient* used when splitting flows at a junction while solving steady state flow;
-it is specified for leaf nodes and propagated to upstream edges.
+`m_rel` controls how the total flow is divided between branches. A load with `m_rel=2.0` gets twice as much flow as
+one with `m_rel=1.0`. Set this on every load node before running a simulation — the solver reads it from the leaves
+and propagates the split ratios upstream.
 
 ```julia
 mutable struct LoadNode <: NodeType
@@ -98,12 +99,12 @@ end
 ```
 
 # Constructors
-- `LoadNode(info::String; load=DEFAULT_LOAD)`: Creates a LoadNode with the specified info string and an optional load function (default is a typical load curve).
-- `LoadNode(info::String, position::Tuple{Float64, Float64}; load=DEFAULT_LOAD)`
-- `LoadNode(info::String, position::Tuple{Float64, Float64}, load::NTuple{3, Float64})`
-- `LoadNode(info::String, position::Tuple{Float64, Float64}, m_rel::Float64; load=DEFAULT_LOAD)`
-- `LoadNode(position::Tuple{Float64, Float64}; load=DEFAULT_LOAD)`
 - `LoadNode(; load=DEFAULT_LOAD)`
+- `LoadNode(info::String; load=DEFAULT_LOAD)`
+- `LoadNode(position::Tuple{Float64, Float64}; load=DEFAULT_LOAD)`
+- `LoadNode(info::String, position::Tuple{Float64, Float64}; load=DEFAULT_LOAD)`
+- `LoadNode(info::String, position::Tuple{Float64, Float64}, m_rel::Float64; load=DEFAULT_LOAD)`: set `m_rel` directly at construction.
+- `LoadNode(info::String, position::Tuple{Float64, Float64}, load::NTuple{3, Float64})`: set custom load coefficients as the third positional argument.
 """
 mutable struct LoadNode <: NodeType
     common::NodeCommon
@@ -185,8 +186,8 @@ end
 - `heat_resistance_backward` [m·K/W]: thermal resistance for the return direction
 
 # Constructors
-- `PipeParams(length::Float64, inner_diameter::Float64, heat_resistance_forward::Float64, heat_resistance_backward::Float64)`
-- `PipeParams(length::Float64, inner_diameter::Float64)`: uses default heat resistance values based on typical insulation properties.
+- `PipeParams(length, inner_diameter, heat_resistance_forward, heat_resistance_backward)`: positional, all values explicit.
+- `PipeParams(; length, inner_diameter, heat_resistance_forward=3.0, heat_resistance_backward=4.0)`: keyword form with sensible defaults for the resistance values.
 """
 struct PipeParams                       # unchanging physical parameters of the pipe
     length::Float64                     # Length of the pipe [m]
@@ -212,17 +213,17 @@ end
 ```
 
 # Fields
-- `physical_params: geometry and heat-loss parameters.
-- `mass_flow: mass flow in kg/s (typically computed by `steady_state_hydronynamics!`).
-- `m_rel: relative flow coefficient used for splitting at junctions.
-- `plugs_f: plug queue for the forward (supply) direction.
-- `plugs_b: plug queue for the backward (return) direction.
+- `physical_params`: geometry and heat-loss parameters (see `PipeParams`).
+- `mass_flow`: mass flow in kg/s. `missing` until computed by `steady_state_hydronynamics!`.
+- `m_rel`: relative flow coefficient used for splitting at junctions. `missing` until computed.
+- `plugs_f`: plug queue for the forward (supply) direction.
+- `plugs_b`: plug queue for the backward (return) direction.
 
 # Constructors
-- `InsulatedPipe(info::String; length::Float64, inner_diameter::Float64, heat_resistance_forward::Float64, heat_resistance_backward::Float64)`
-- `InsulatedPipe(info::String, params::PipeParams)`
-- `InsulatedPipe(params::PipeParams)`
-- `InsulatedPipe(length::Real)`
+- `InsulatedPipe(; info="pipe", length=100.0, inner_diameter=0.1, heat_resistance_forward=3.0, heat_resistance_backward=4.0, mass_flow=missing, m_rel=missing)`: all-keyword constructor; physical params have sensible defaults.
+- `InsulatedPipe(info::String, params::PipeParams; mass_flow=missing, m_rel=missing)`: build from a pre-constructed `PipeParams`.
+- `InsulatedPipe(params::PipeParams; mass_flow=missing, m_rel=missing)`: same, with default `info="pipe"`.
+- `InsulatedPipe(length::Real)`: shorthand that sets only the pipe length; all other params take their defaults.
 """
 mutable struct InsulatedPipe <: EdgeType
     info::String
@@ -244,31 +245,17 @@ struct EmptyEdge <: EdgeType end
 # DH NETWORK TYPE
 # ------------------------------------------------- #
 
-"""Mappings to inneghbors and outneighbors for efficient access during simulation, stored in the Network struct.
+"""Cached neighbor lookup tables stored inside a `Network`.
 
-When calling functions `outneighbors(nw, label)` or `inneighbors(nw, label)`, 
-there is no need to scan through the graph and collect neighbors, 
-instead we can directly access the pre-computed neighbor lists in the dictionaries.
-This significantly lowers the number of allocations during simulation, because there
-is a lot of places where we need to access neighbors of a node.
+Instead of scanning the graph every time `outneighbors` or `inneighbors` is called, the results
+are pre-computed once and stored here. Since the network topology is fixed during a simulation,
+this cache is built once before the first time step and reused throughout.
 
-The network is static during the simulation, so we can compute these neighbor lists once
-before the simulation starts and then reuse them.
-
-```julia
-mutable struct NeighborDicts
-    outneighbors::Dict{String, Vector{String}}       # mapping nodes to outneighbors for efficient access in simulation
-    inneighbors::Dict{String, Vector{String}}        # mapping nodes to inneighbors for efficient access in simulation
-    need_rebuild::Bool                               # flag to indicate if neighbor dicts need to be rebuilt before simulation
-end
-```
-
-- `need_rebuild` flag is used to indicate when the neighbor dicts need to be updated
-   (e.g., after adding/removing nodes or edges), so that we can avoid unnecessary 
-   rebuilding during multiple modifications.
+The `need_rebuild` flag is set to `true` whenever the topology changes (e.g. after adding or
+removing nodes/edges), so the cache is automatically refreshed before the next lookup.
 
 # Constructor
-- `NeighborDicts()`: Creates an instance of NeighborDicts with empty dictionaries and the need_rebuild flag set to true.
+- `NeighborDicts()`: creates an empty instance with `need_rebuild = true`.
 """
 mutable struct NeighborDicts
     outneighbors::Dict{String, Vector{String}}       # mapping nodes to outneighbors for efficient access in simulation
@@ -296,9 +283,10 @@ end
 - `neighbor_dicts`: cached neighbor lists used to reduce allocations during simulation.
 
 # Constructors
-- `Network()`: Creates an empty DH network with no nodes or edges.
-- `Network(g::DiGraph)`: Creates a DH network from an existing directed graph structure ('Graphs.jl').
-                         Nodes and edges are initialized with EmptyNode and EmptyEdge data.
+- `Network()`: creates an empty network with no nodes or edges.
+- `Network(g::SimpleDiGraph)`: wraps an existing `Graphs.jl` directed graph. All nodes and edges are
+  initialized as `EmptyNode` / `EmptyEdge` — use `name_nodes!`, `identify_producer_and_loads!`, etc.
+  to populate them.
 
 """
 mutable struct Network{T<:Integer} <: AbstractGraph{T}
@@ -335,27 +323,48 @@ end
 
 PipeParams(;length::Real, inner_diameter::Real, heat_resistance_forward::Real=3.0, heat_resistance_backward::Real=4.0) = PipeParams(float(length), float(inner_diameter), float(heat_resistance_forward), float(heat_resistance_backward))
 
-function InsulatedPipe(info::String;
-                        length::Float64=100.0,
-                        inner_diameter::Float64=0.1,
-                        heat_resistance_forward::Float64=3.0,
-                        heat_resistance_backward::Float64=4.0)
-    physical_params = PipeParams(length, inner_diameter, heat_resistance_forward, heat_resistance_backward)
-    return InsulatedPipe(info, physical_params)
+function InsulatedPipe(; info::String="pipe",
+                         length::Real=100.0,
+                         inner_diameter::Real=0.1,
+                         heat_resistance_forward::Real=3.0,
+                         heat_resistance_backward::Real=4.0,
+                         mass_flow=missing,
+                         m_rel=missing)
+    params = PipeParams(float(length), float(inner_diameter),
+                        float(heat_resistance_forward), float(heat_resistance_backward))
+    return InsulatedPipe(info, params; mass_flow=mass_flow, m_rel=m_rel)
 end
-function InsulatedPipe(info::String, params::PipeParams)::InsulatedPipe
-    mass_flow = missing         # [kg/s]
-    m_rel = missing             # Relative mass flow coefficient
-    plugs_f = Vector{Plug}()    # Initialize empty queue of plugs (forward direction)
-    plugs_b = Vector{Plug}()    # Initialize empty queue of plugs (backward direction)
-    return InsulatedPipe(info, params, mass_flow, m_rel, plugs_f, plugs_b)
-end
-InsulatedPipe(params::PipeParams) = InsulatedPipe("pipe", params)
-InsulatedPipe(length::Real) = InsulatedPipe("pipe"; length=float(length))
 
+function InsulatedPipe(info::String, params::PipeParams; mass_flow=missing, m_rel=missing)
+    return InsulatedPipe(info, params, mass_flow, m_rel, Vector{Plug}(), Vector{Plug}())
+end
+
+InsulatedPipe(params::PipeParams; mass_flow=missing, m_rel=missing) =
+    InsulatedPipe("pipe", params; mass_flow=mass_flow, m_rel=m_rel)
+
+InsulatedPipe(length::Real) = InsulatedPipe(; length=float(length))
+
+"""Convenience constructor for a zero-length `InsulatedPipe`.
+
+A `ZeroPipe` is an `InsulatedPipe` with all physical dimensions set to zero
+(`length`, `inner_diameter`, `heat_resistance_forward`, `heat_resistance_backward` all `0.0`).
+It introduces no thermal delay, no heat loss, and no pressure drop.
+Useful for modelling direct connections between nodes where a real pipe is not needed.
+
+# Constructors
+- `ZeroPipe()`: zero-length pipe with default info string `"zero pipe"`.
+- `ZeroPipe(info::String)`: same, with a custom label.
+- `ZeroPipe(info="zero pipe"; mass_flow=missing, m_rel=missing)`: optional pre-set hydraulic fields.
+
+See also: `InsulatedPipe`, `is_zero_pipe`.
+"""
 # insulated pipe with zero length
-ZeroPipe(info::String) = InsulatedPipe(info;length=0.0, inner_diameter=0.0, heat_resistance_forward=0.0, heat_resistance_backward=0.0)
-ZeroPipe() = ZeroPipe("zero pipe")
+ZeroPipe(info::String="zero pipe"; mass_flow=missing, m_rel=missing) =
+    InsulatedPipe(; info=info, length=0.0, inner_diameter=0.0,
+                  heat_resistance_forward=0.0, heat_resistance_backward=0.0,
+                  mass_flow=mass_flow, m_rel=m_rel)
+is_zero_pipe(e::InsulatedPipe) = pipe_length(e) == 0.0 && inner_diameter(e) == 0.0
+
 
 # ------------------------------------------------- #
 # NODE CONSTRUCTORS
