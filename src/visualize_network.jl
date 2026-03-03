@@ -43,7 +43,7 @@ function edge_widths(mg::MetaGraph, max_width::Float64=5.0, min_width::Float64=1
     min_d = minimum(ds)
     max_d = maximum(ds)
 
-    if min_d == max_d
+    if min_d === max_d
         return fill((max_width + min_width) / 2, length(ds)) # if all diameters are the same, return the average width
     end
 
