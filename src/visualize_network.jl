@@ -61,6 +61,8 @@ function edge_info_hover(e::T) where {T<:EdgeType}
     return info
 end
 edge_info_hover(::EmptyEdge) = ""
+edge_info_hover(e::ZeroPipe) = e.info * " (zero pipe)" *
+    (!ismissing(e.mass_flow) ? ", ṁ=$(round(e.mass_flow, digits=2)) kg/s" : "")
 edge_info(::EmptyEdge) = ""
 """Human-readable edge label used by default in `visualize_graph!`."""
 function edge_info(e::T) where {T<:EdgeType} # non-hover label for edge types

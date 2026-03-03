@@ -38,7 +38,6 @@ export rem_node!, rename_node!, remove_edge!
 export pipe_length, length, inner_diameter, heat_resistance_forward, heat_resistance_backward, mass_flow, m_rel
 export water_velocities, water_velocity
 export outneighbors, inneighbors, neighbors, degree, outdegree, indegree
-export is_zero_pipe
 
 include("printing.jl")
 

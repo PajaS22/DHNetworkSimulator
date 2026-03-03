@@ -104,11 +104,10 @@
         @test z4.m_rel == 0.5
     end
 
-    @testset "is_zero_pipe" begin
-        @test is_zero_pipe(ZeroPipe())
-        @test is_zero_pipe(ZeroPipe("x"))
-        @test !is_zero_pipe(InsulatedPipe(100))
-        @test !is_zero_pipe(InsulatedPipe(; length=0.0, inner_diameter=0.1))  # length zero but diameter not
+    @testset "ZeroPipe identity" begin
+        @test ZeroPipe() isa ZeroPipe
+        @test ZeroPipe("x") isa ZeroPipe
+        @test !(InsulatedPipe(100) isa ZeroPipe)
     end
 
     @testset "JunctionNode constructors" begin

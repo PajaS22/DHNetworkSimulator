@@ -308,6 +308,15 @@ function water_velocity(e::InsulatedPipe)
     return velocity
 end
 
+pipe_length(::ZeroPipe) = 0.0
+Base.length(::ZeroPipe) = 0.0
+inner_diameter(::ZeroPipe) = 0.0
+heat_resistance_forward(::ZeroPipe) = 0.0
+heat_resistance_backward(::ZeroPipe) = 0.0
+mass_flow(e::ZeroPipe) = e.mass_flow
+m_rel(e::ZeroPipe) = e.m_rel
+water_velocity(::ZeroPipe) = missing
+
 """Compute water velocities for all pipe edges in the network.
 
 Returns a `Dict{Tuple{String,String}, Float64}` keyed by `(src_label, dst_label)`, with velocity in m/s.

@@ -641,6 +641,12 @@ function push_in_water_plugs_backward!(e::InsulatedPipe, plugs::Vector{Plug})
     end
     merge_same_temperature_plugs!(e.plugs_b)
 end
+function push_in_water_plugs_forward!(e::ZeroPipe, plugs::Vector{Plug})
+    append!(e.plugs_f, plugs)
+end
+function push_in_water_plugs_backward!(e::ZeroPipe, plugs::Vector{Plug})
+    append!(e.plugs_b, plugs)
+end
 
 """Merge consecutive plugs whose temperatures are nearly equal.
 

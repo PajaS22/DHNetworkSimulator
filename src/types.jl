@@ -348,26 +348,37 @@ InsulatedPipe(params::PipeParams; mass_flow=missing, m_rel=missing) =
 
 InsulatedPipe(length::Real) = InsulatedPipe(; length=float(length))
 
-"""Convenience constructor for a zero-length `InsulatedPipe`.
+"""DH network edge representing an instant, lossless connection.
 
-A `ZeroPipe` is an `InsulatedPipe` with all physical dimensions set to zero
-(`length`, `inner_diameter`, `heat_resistance_forward`, `heat_resistance_backward` all `0.0`).
-It introduces no thermal delay, no heat loss, and no pressure drop.
-Useful for modelling direct connections between nodes where a real pipe is not needed.
+`ZeroPipe` models a direct connection between two nodes with no transit delay,
+no heat loss, and no pressure drop. Use it wherever a real pipe is not needed
+(e.g. the zero-delay branch of an aggregated junction pair).
+
+Unlike `InsulatedPipe`, `ZeroPipe` carries no `physical_params`. Its length,
+inner diameter, and thermal resistances are identically zero by definition.
+The `plugs_f`/`plugs_b` queues act as within-timestep buffers — they are always
+empty at the start and end of each time step.
 
 # Constructors
-- `ZeroPipe()`: zero-length pipe with default info string `"zero pipe"`.
-- `ZeroPipe(info::String)`: same, with a custom label.
-- `ZeroPipe(info="zero pipe"; mass_flow=missing, m_rel=missing)`: optional pre-set hydraulic fields.
+- `ZeroPipe()`: default info `"zero pipe"`.
+- `ZeroPipe(info::String)`: custom label.
+- `ZeroPipe(info::String; mass_flow=missing, m_rel=missing)`: pre-set hydraulic fields.
+- `ZeroPipe(; info="zero pipe", mass_flow=missing, m_rel=missing)`: keyword form.
 
-See also: `InsulatedPipe`, `is_zero_pipe`.
+See also: `InsulatedPipe`.
 """
-# insulated pipe with zero length
+mutable struct ZeroPipe <: EdgeType
+    info::String
+    mass_flow::Union{Missing, Float64}
+    m_rel::Union{Missing, Float64}
+    plugs_f::Vector{Plug}
+    plugs_b::Vector{Plug}
+end
+
 ZeroPipe(info::String="zero pipe"; mass_flow=missing, m_rel=missing) =
-    InsulatedPipe(; info=info, length=0.0, inner_diameter=0.0,
-                  heat_resistance_forward=0.0, heat_resistance_backward=0.0,
-                  mass_flow=mass_flow, m_rel=m_rel)
-is_zero_pipe(e::InsulatedPipe) = pipe_length(e) == 0.0 && inner_diameter(e) == 0.0
+    ZeroPipe(info, mass_flow, m_rel, Vector{Plug}(), Vector{Plug}())
+ZeroPipe(; info::String="zero pipe", mass_flow=missing, m_rel=missing) =
+    ZeroPipe(info; mass_flow=mass_flow, m_rel=m_rel)
 
 
 # ------------------------------------------------- #

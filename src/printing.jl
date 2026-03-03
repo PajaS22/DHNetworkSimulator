@@ -95,6 +95,13 @@ end
 function Base.show(io::IO, ::EmptyEdge)
     println(io, "Empty Edge")
 end
+# Zero pipe (minimal)
+function Base.show(io::IO, edge::ZeroPipe)
+    summary = "Zero Pipe"
+    summary *= !ismissing(edge.mass_flow) ? ", Mass flow: $(round(edge.mass_flow; digits=2)) kg/s" : ""
+    summary *= !ismissing(edge.m_rel) ? ", M_flow_rel: $(round(edge.m_rel; digits=2))" : ""
+    println(io, summary)
+end
 # Pipe edge (with details)
 function Base.show(io::IO, edge::InsulatedPipe)
     summary = "Pipe Edge, L=$(pipe_length(edge)), D_in=$(inner_diameter(edge)), R_f=$(heat_resistance_forward(edge)), R_b=$(heat_resistance_backward(edge))"

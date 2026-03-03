@@ -47,7 +47,7 @@ julia --project scripts/basic_network.jl
 
 **Lazy neighbor cache**: `NeighborDicts` in `Network` is rebuilt on demand. Any topology modification must mark it dirty; `check_and_update_neighbor_dicts!` rebuilds it.
 
-**Two plug queues per pipe**: `InsulatedPipe` has both `plugs_f` (supply/forward) and `plugs_b` (return/backward). These are `Vector{Plug}` — front of the vector is the pipe outlet.
+**Two plug queues per pipe**: Both `InsulatedPipe` and `ZeroPipe` have `plugs_f` (supply/forward) and `plugs_b` (return/backward) fields. These are `Vector{Plug}` — front of the vector is the pipe outlet. For `ZeroPipe` the queues act as within-timestep pass-through buffers and are always empty at the start/end of each step.
 
 **Tree-only topology**: `check_network!` (called at simulation start) enforces that the graph is a DAG, has exactly one `ProducerNode`, and all nodes connect back to the producer.
 
@@ -61,6 +61,12 @@ julia --project scripts/basic_network.jl
 - `LoadNode` — leaf nodes (outdegree=0) with power demand curves
 - `JunctionNode` — branching/merging points (indegree≥1, outdegree≥1)
 - `EmptyNode` — placeholder used during construction
+
+### Edge Types
+
+- `InsulatedPipe` — physical pipe with `PipeParams` (length, inner diameter, thermal resistances) and two plug queues (`plugs_f`, `plugs_b`). All thermal/hydraulic accessors (`pipe_length`, `inner_diameter`, `heat_resistance_forward/backward`, `water_velocity`) operate on this type.
+- `ZeroPipe` — a distinct `mutable struct <: EdgeType` modelling a zero-delay, lossless connection. Carries no `physical_params`; all dimension accessors return `0.0` and `water_velocity` returns `missing`. Use `e isa ZeroPipe` to identify it. Useful for the zero-delay branch of an aggregated junction pair.
+- `EmptyEdge` — immutable placeholder used during topology construction; replace before simulating.
 
 ### Simulation Flow (per time step)
 
