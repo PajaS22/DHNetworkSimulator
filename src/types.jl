@@ -375,7 +375,7 @@ mutable struct ZeroPipe <: EdgeType
     plugs_b::Vector{Plug}
 end
 
-ZeroPipe(info::String="zero pipe"; mass_flow=missing, m_rel=missing) = ZeroPipe(info, mass_flow, m_rel, Vector{Plug}(), Vector{Plug}())
+ZeroPipe(info::String; mass_flow=missing, m_rel=missing) = ZeroPipe(info, mass_flow, m_rel, Vector{Plug}(), Vector{Plug}())
 ZeroPipe(; info::String="zero pipe", mass_flow=missing, m_rel=missing) = ZeroPipe(info; mass_flow=mass_flow, m_rel=m_rel)
 
 
