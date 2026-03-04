@@ -5,7 +5,7 @@ This page documents the core data types used to represent a district heating net
 The package models a network as a directed graph where:
 
 - vertices are *nodes* (`ProducerNode`, `JunctionNode`, `LoadNode`), and
-- edges are *pipes* (`InsulatedPipe`) carrying water plugs.
+- edges are *pipes* (`InsulatedPipe`, `ZeroPipe`) carrying water plugs.
 
 ## Conventions
 
@@ -22,4 +22,4 @@ The package models a network as a directed graph where:
 See the API reference for: [`NodeType`](@ref), [`NodeCommon`](@ref), [`JunctionNode`](@ref), [`LoadNode`](@ref), [`ProducerNode`](@ref), [`EmptyNode`](@ref).
 
 ## Edges
-See the API reference for: [`EdgeType`](@ref), [`EmptyEdge`](@ref), [`Plug`](@ref), [`InsulatedPipe`](@ref), [`PipeParams`](@ref).
+See the API reference for: [`EdgeType`](@ref), [`EmptyEdge`](@ref), [`Plug`](@ref), [`InsulatedPipe`](@ref), [`ZeroPipe`](@ref), [`PipeParams`](@ref).

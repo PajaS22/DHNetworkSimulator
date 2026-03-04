@@ -25,6 +25,7 @@ DHNetworkSimulator.EmptyNode
 
 DHNetworkSimulator.PipeParams
 DHNetworkSimulator.InsulatedPipe
+DHNetworkSimulator.ZeroPipe
 DHNetworkSimulator.Plug
 DHNetworkSimulator.EmptyEdge
 ```

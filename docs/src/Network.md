@@ -10,7 +10,7 @@ It represents a **district heating network** as a *directed graph*:
 Unlike a plain graph, a `Network` stores *typed domain data* on:
 
 - **nodes**: `ProducerNode`, `JunctionNode`, `LoadNode` (plus `EmptyNode` as a placeholder during construction),
-- **edges**: typically `InsulatedPipe` (plus `EmptyEdge` as a placeholder during construction).
+- **edges**: `InsulatedPipe` for physical pipes, `ZeroPipe` for instant lossless connections (plus `EmptyEdge` as a placeholder during construction).
 - more on nodes and edges in [Network nodes and edges](@ref)
 
 This design makes it straightforward to build a topology, attach physical parameters, and run the hydraulic + thermal simulation.
@@ -19,7 +19,7 @@ See [`Network`](@ref) in the API reference.
 
 ## Features
 
-- **Typed nodes and edges**: domain structs like [`ProducerNode`](@ref), [`LoadNode`](@ref), and [`InsulatedPipe`](@ref) are stored directly on the graph.
+- **Typed nodes and edges**: domain structs like [`ProducerNode`](@ref), [`LoadNode`](@ref), [`InsulatedPipe`](@ref), and [`ZeroPipe`](@ref) are stored directly on the graph.
 - **Label-based addressing**: access nodes/edges by string labels (`nw["A"]`, `nw["A", "B"]`).
 - **Graphs.jl compatibility**: `Network` subtypes `AbstractGraph`, so you can use functions like `nv`, `ne`, `vertices`, and `edges`.
 - **Validated structural assumptions**: [`run_simulation`](@ref) calls [`DHNetworkSimulator.check_network!`](@ref) to validate the topology (one producer, acyclic, connected, loads are leaves).
@@ -93,9 +93,9 @@ name_nodes!(nw, ["P", "J", "L1", "L2"]) # rename 1..n to meaningful labels
 identify_producer_and_loads!(nw)            # assign Producer/Junction/Load node types
 
 # attach pipe parameters (edge data)
-nw["P", "J"]  = InsulatedPipe("P→J";  length=300.0, inner_diameter=0.10)
-nw["J", "L1"] = InsulatedPipe("J→L1"; length=150.0, inner_diameter=0.08)
-nw["J", "L2"] = InsulatedPipe("J→L2"; length=180.0, inner_diameter=0.08)
+nw["P", "J"]  = InsulatedPipe(; info="P→J",  length=300.0, inner_diameter=0.10)
+nw["J", "L1"] = InsulatedPipe(; info="J→L1", length=150.0, inner_diameter=0.08)
+nw["J", "L2"] = InsulatedPipe(; info="J→L2", length=180.0, inner_diameter=0.08)
 
 ne(nw), nv(nw)
 ```
@@ -132,7 +132,7 @@ nw = Network()
 nw["P"]  = ProducerNode("Plant", (0.0, 0.0))
 nw["L1"] = LoadNode("House 1", (1.0, 0.0))
 
-nw["P", "L1"] = InsulatedPipe("P→L1"; length=200.0, inner_diameter=0.10)
+nw["P", "L1"] = InsulatedPipe(; info="P→L1", length=200.0, inner_diameter=0.10)
 ```
 ```julia-repl
 julia> nw
