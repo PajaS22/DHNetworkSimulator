@@ -51,6 +51,7 @@ DHNetworkSimulator.identify_producer_and_loads!
 DHNetworkSimulator.has_label
 DHNetworkSimulator.index_for
 DHNetworkSimulator.rem_node!
+DHNetworkSimulator.remove_edge!
 DHNetworkSimulator.rename_node!
 DHNetworkSimulator.vertices_data
 DHNetworkSimulator.edges_data
@@ -87,6 +88,8 @@ Base.length(::DHNetworkSimulator.InsulatedPipe)
 DHNetworkSimulator.inner_diameter
 DHNetworkSimulator.heat_resistance_forward
 DHNetworkSimulator.heat_resistance_backward
+DHNetworkSimulator.mass_flow
+DHNetworkSimulator.m_rel
 DHNetworkSimulator.water_velocity
 DHNetworkSimulator.water_velocities
 ```
