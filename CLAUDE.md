@@ -53,7 +53,7 @@ julia --project scripts/basic_network.jl
 
 **Two-phase hydraulics**: First compute `m_rel` (relative split coefficients) via post-order DFS, then compute absolute `mass_flow` via BFS from root.
 
-**Load power model**: `P(T_ambient) = p₀ + p₁·T_a + p₂·T_a²` — quadratic in outdoor temperature. Coefficients set via `fill_load_specs!`.
+**Load power model**: `LoadNode.load` holds a `LoadSpec(fn, params)` where `fn(params, T_a) -> kW`. The built-in `polynomial_load` gives the quadratic default. Custom functions set via `set_load_fn!`; parameters updated via `set_load_params!`. Both validate non-negativity and finiteness over a configurable T_a range before storing.
 
 ### Node Types
 

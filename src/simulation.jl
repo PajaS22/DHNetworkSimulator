@@ -685,24 +685,51 @@ function combine_plugs(plugs::Vector{Plug})::Plug
     return Plug(avg_temp, total_mass)
 end
 
-"""Set load parameters for one load node.
-
-Currently this sets only the relative mass-flow coefficient `m_rel`.
-"""
+"""Set the relative mass-flow coefficient for one load node."""
 function set_load_params!(nw::Network, load_label::String, m_rel::Float64)
-    # set parameters of a load node, for now just relative mass flow coefficient
     @assert nw[load_label] isa LoadNode
     nw[load_label].m_rel = m_rel
 end
 
-"""Set load parameters for multiple load nodes.
+"""Set the relative mass-flow coefficient for multiple load nodes.
 
 `load_params` maps `load_label => m_rel`.
 """
 function set_load_params!(nw::Network, load_params::Dict{String, Float64})
-    # set parameters of multiple load nodes
     for (load_label, m_rel) in load_params
         set_load_params!(nw, load_label, m_rel)
+    end
+end
+
+"""Update the demand function parameters for a single load node, keeping the existing function.
+
+Validates the new parameters with the node's current function before storing.
+Raises an error if the node has no load function set yet — use [`set_load_fn!`](@ref) first.
+
+See also: [`set_load_fn!`](@ref), [`validate_load_spec`](@ref).
+"""
+function set_load_params!(nw::Network, label::String, params::AbstractVector{<:Real};
+                          T_a_range=-30.0:1.0:30.0)
+    has_label(nw, label) || error("Node with label $label does not exist in the network.")
+    node = nw[label]
+    node isa LoadNode || error("Node with label $label is not a load node.")
+    ismissing(node.load) && error("No load function set on node $label. Use set_load_fn! first.")
+    p = convert(Vector{Float64}, params)
+    validate_load_spec(node.load.fn, p; T_a_range=T_a_range)
+    node.load.params = p
+    nw[label] = node
+end
+
+"""Update demand function parameters for multiple load nodes, keeping each node's existing function.
+
+`params_dict` maps `load_label => new_params`. All entries are validated before any node is updated.
+
+See also: [`set_load_fn!`](@ref), [`set_load_params!`](@ref).
+"""
+function set_load_params!(nw::Network, params_dict::Dict{String, <:AbstractVector{<:Real}};
+                          T_a_range=-30.0:1.0:30.0)
+    for (label, params) in params_dict
+        set_load_params!(nw, label, params; T_a_range=T_a_range)
     end
 end
 
@@ -750,23 +777,12 @@ end
 
 """Compute load power demand as a function of outdoor temperature.
 
-Evaluates the quadratic curve `P(Tₐ) = p₀ + p₁·Tₐ + p₂·Tₐ²` stored in the node's `load` field.
-The curve is clamped at its minimum so that power never increases above a certain outdoor temperature.
-Returns power in **Watts** (the load coefficients are in kW — conversion is handled internally).
+Calls `node.load.fn(node.load.params, Tₐ)` and returns the result in **Watts**
+(the load function returns kW — conversion is handled internally).
+The result is clamped to zero to prevent negative power (energy flowing back into the network).
 """
 function power_consumption(node::LoadNode, Tₐ::Float64)::Float64
-    # compute power consumption of a load node based on outdoor temperature and load coefficients
-    # power consumtion is polynomial function of outdoor temperature: P = a + b*Tₐ + c*Tₐ^2 + ...
-    T₀ = -node.load[2] / (2*node.load[3]) # minimal power consumption at this outdoor temperature
-    if(Tₐ > T₀) # function must be decresing
-        return node.load[1] + node.load[2]*T₀ + node.load[3]*T₀^2
-    end
-
-    P = 0.0
-    for i in 1:length(node.load)
-        P += node.load[i] * (Tₐ^(i-1))
-    end
-    return P * 1000.0 # convert from kW to W
+    return max(0.0, node.load.fn(node.load.params, Tₐ)) * 1000.0
 end
 power_consumption(node::LoadNode, Tₐ::Nothing) = 0.0
 

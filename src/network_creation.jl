@@ -125,19 +125,14 @@ end
 - `m_r`: `Dict{String, Float64}` mapping label → relative mass-flow coefficient.
 
 Every load node in the network must have an entry in both dictionaries.
+The power curve is validated before storing — see [`validate_load_spec`](@ref).
 """
 function fill_load_specs!(network::Network, pwr_coefs::Dict{String, NTuple{3, Float64}}, m_r::Dict{String, Float64})
     for label in network.load_labels
-        if haskey(pwr_coefs, label)
-            set_load_pwr_coefs!(network, label, pwr_coefs[label])
-        else
-            error("Power specifications for node $(label) not found in load_coefs.")
-        end
-        if haskey(m_r, label)
-            set_load_m_rel!(network, label, m_r[label])
-        else
-            error("Relative mass flow coefficient for node $(label) not found in m_r.")
-        end
+        haskey(pwr_coefs, label) || error("Power specifications for node $(label) not found in pwr_coefs.")
+        haskey(m_r, label)       || error("Relative mass flow coefficient for node $(label) not found in m_r.")
+        set_load_fn!(network, label, polynomial_load, collect(pwr_coefs[label]))
+        set_load_m_rel!(network, label, m_r[label])
     end
 end
 
@@ -145,10 +140,11 @@ end
 
 Handy for quick setups where all loads share the same parameters.
 Defaults to zero power curve and `m_r=1.0` (equal flow split).
+The power curve is validated before storing — see [`validate_load_spec`](@ref).
 """
 function fill_load_specs!(network::Network; pwr_coefs = (0.0, 0.0, 0.0), m_r = 1.0)
     for label in network.load_labels
-        set_load_pwr_coefs!(network, label, pwr_coefs)
+        set_load_fn!(network, label, polynomial_load, collect(pwr_coefs))
         set_load_m_rel!(network, label, m_r)
     end
 end

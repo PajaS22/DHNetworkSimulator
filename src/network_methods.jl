@@ -241,17 +241,76 @@ function set_source_inputs!(nw::Network, mass_flow::Float64, temperature::Float6
     src_node.common.temperature = temperature
 end
 
-# set coefficients for load node
-function set_load_pwr_coefs!(nw::Network, label::String, coefs::Tuple{Float64, Float64, Float64})
-    if !has_label(nw, label)
-        error("Node with label $label does not exist in the network.")
+"""Check that a load function is non-negative and bounded over a temperature range.
+
+Evaluates `fn(params, T_a)` at every point in `T_a_range` (default –30 °C to 30 °C in 1 °C steps)
+and raises an error if any value is **negative** (power cannot flow back from the consumer into
+the network) or **not finite** (unbounded load function).
+
+# Arguments
+- `fn`: load function with signature `fn(params::Vector{Float64}, T_a::Float64) -> Float64` (kW).
+- `params`: parameter vector passed to `fn`.
+- `T_a_range`: temperature sample points for validation. Widen or narrow this range to match your
+  network's operating envelope. Default: `-30.0:1.0:30.0`.
+"""
+function validate_load_spec(fn::Function, params::Vector{Float64}; T_a_range=-30.0:1.0:30.0)
+    for T_a in T_a_range
+        v = fn(params, Float64(T_a))
+        v < 0.0    && error("Load function returns negative power ($v kW) at T_ambient = $T_a °C. Power demand must be ≥ 0.")
+        !isfinite(v) && error("Load function returns non-finite power ($v kW) at T_ambient = $T_a °C.")
     end
+end
+
+"""Set the power demand function and parameters for a single load node.
+
+Validates the function over `T_a_range` before storing. The function must have signature
+`fn(params::Vector{Float64}, T_a::Float64) -> Float64` and return power in **kW**.
+It must be non-negative and finite over the validation range.
+
+See also: [`set_load_params!`](@ref), [`validate_load_spec`](@ref).
+"""
+function set_load_fn!(nw::Network, label::String, fn::Function, params::AbstractVector{<:Real};
+                      T_a_range=-30.0:1.0:30.0)
+    has_label(nw, label) || error("Node with label $label does not exist in the network.")
     node = nw[label]
-    if !(node isa LoadNode)
-        error("Node with label $label is not a load node.")
-    end
-    node.load = coefs
+    node isa LoadNode || error("Node with label $label is not a load node.")
+    p = Vector{Float64}(params)  # always copy so each node owns its params
+    validate_load_spec(fn, p; T_a_range=T_a_range)
+    node.load = LoadSpec(fn, p)
     nw[label] = node
+end
+
+"""Set the same power demand function on every load node in the network, with the same parameters.
+
+See also: [`set_load_fn!`](@ref).
+"""
+function set_load_fn!(nw::Network, fn::Function, params::AbstractVector{<:Real};
+                      T_a_range=-30.0:1.0:30.0)
+    for label in nw.load_labels
+        set_load_fn!(nw, label, fn, params; T_a_range=T_a_range)
+    end
+end
+
+"""Set the same power demand function on every load node, with per-load parameters from a dictionary.
+
+`params_dict` maps each load label to its own parameter vector. All entries are validated before any
+node is updated — if any validation fails, no nodes are changed.
+
+See also: [`set_load_fn!`](@ref).
+"""
+function set_load_fn!(nw::Network, fn::Function, params_dict::Dict{String, <:AbstractVector{<:Real}};
+                      T_a_range=-30.0:1.0:30.0)
+    # validate all first so we don't partially update the network on error
+    for (label, params) in params_dict
+        has_label(nw, label) || error("Node with label $label does not exist in the network.")
+        nw[label] isa LoadNode || error("Node with label $label is not a load node.")
+        validate_load_spec(fn, convert(Vector{Float64}, params); T_a_range=T_a_range)
+    end
+    for (label, params) in params_dict
+        node = nw[label]
+        node.load = LoadSpec(fn, convert(Vector{Float64}, params))
+        nw[label] = node
+    end
 end
 
 # set relative_mass_flow for load node

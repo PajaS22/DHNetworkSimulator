@@ -78,13 +78,49 @@ struct JunctionNode <: NodeType
     common::NodeCommon
 end
 
+"""Built-in power demand function: polynomial in ambient temperature.
+
+Evaluates ``P(T_a) = \\sum_{i} params_i \\cdot T_a^{i-1}`` and returns power in **kW**.
+Any number of coefficients is supported:
+
+- `params = [p₀, p₁, p₂]` — quadratic
+- `params = [p₀, p₁]` — linear
+- `params = [p₀]` — constant
+
+See also: [`LoadSpec`](@ref).
+"""
+polynomial_load(params::Vector{Float64}, T_a::Float64) = sum(params[i] * T_a^(i-1) for i in eachindex(params))
+
+"""Load specification pairing a power demand function with its parameters.
+
+`fn(params, T_a)` must return power demand in **kW** for a given parameter vector and ambient
+temperature `T_a` in °C. Parameters are stored as a `Vector{Float64}` so they can be updated
+without replacing the function.
+
+```julia
+mutable struct LoadSpec
+    fn::Function
+    params::Vector{Float64}
+end
+```
+
+# Fields
+- `fn::Function`: demand function with signature `fn(params::Vector{Float64}, T_a::Float64) -> Float64` (kW).
+- `params::Vector{Float64}`: current parameters passed to `fn`.
+
+See also: [`polynomial_load`](@ref), [`set_load_fn!`](@ref), [`set_load_params!`](@ref), [`validate_load_spec`](@ref).
+"""
+mutable struct LoadSpec
+    fn::Function
+    params::Vector{Float64}
+end
+
 # Load Node: heat consumer
 """DH network node representing a load (consumer).
 
-The `load` field defines a quadratic power-demand curve as a function of ambient temperature ``T_a``:
-
-``P(T_a) = p_0 + p_1 T_a + p_2 T_a^2,``
-where the power is in kW and the ambient temperature is in °C.
+The `load` field holds a [`LoadSpec`](@ref) pairing a demand function with its parameters.
+The function is called as `load.fn(load.params, T_a)` and must return power demand in **kW**
+for a given ambient temperature `T_a` in °C.
 
 `m_rel` controls how the total flow is divided between branches. A load with `m_rel=2.0` gets twice as much flow as
 one with `m_rel=1.0`. Set this on every load node before running a simulation — the solver reads it from the leaves
@@ -93,23 +129,23 @@ and propagates the split ratios upstream.
 ```julia
 mutable struct LoadNode <: NodeType
     common::NodeCommon
-    load::Union{Missing, NTuple{3, Float64}}     # Heat load function in kW, P(Tₐ) = p₀ + p₁*Tₐ + p₂*Tₐ²
-    m_rel::Union{Missing, Float64}               # Relative mass flow coefficient (for branching nodes)
+    load::Union{Missing, LoadSpec}   # Power demand specification
+    m_rel::Union{Missing, Float64}   # Relative mass flow coefficient (for branching nodes)
 end
 ```
 
 # Constructors
-- `LoadNode(; load=DEFAULT_LOAD)`
-- `LoadNode(info::String; load=DEFAULT_LOAD)`
-- `LoadNode(position::Tuple{Float64, Float64}; load=DEFAULT_LOAD)`
-- `LoadNode(info::String, position::Tuple{Float64, Float64}; load=DEFAULT_LOAD)`
-- `LoadNode(info::String, position::Tuple{Float64, Float64}, m_rel::Float64; load=DEFAULT_LOAD)`: set `m_rel` directly at construction.
-- `LoadNode(info::String, position::Tuple{Float64, Float64}, load::NTuple{3, Float64})`: set custom load coefficients as the third positional argument.
+- `LoadNode(; load=LoadSpec(polynomial_load, [...]))`
+- `LoadNode(info::String; load=...)`
+- `LoadNode(position::Tuple{Float64, Float64}; load=...)`
+- `LoadNode(info::String, position::Tuple{Float64, Float64}; load=...)`
+- `LoadNode(info::String, position::Tuple{Float64, Float64}, m_rel::Float64; load=...)`: set `m_rel` directly at construction.
+- `LoadNode(info::String, position::Tuple{Float64, Float64}, load::LoadSpec)`: provide a custom `LoadSpec` as the third positional argument.
 """
 mutable struct LoadNode <: NodeType
     common::NodeCommon
-    load::Union{Missing, NTuple{3, Float64}}     # Heat load function in kW, P(Tₐ) = p₀ + p₁*Tₐ + p₂*Tₐ²
-    m_rel::Union{Missing, Float64}               # Relative mass flow coefficient (for branching nodes)
+    load::Union{Missing, LoadSpec}   # Power demand specification
+    m_rel::Union{Missing, Float64}   # Relative mass flow coefficient (for branching nodes)
 end
 
 # Producer Node: heat producer
@@ -394,13 +430,13 @@ JunctionNode(position::Tuple{Float64, Float64}) = JunctionNode("junction", posit
 JunctionNode() = JunctionNode("junction")
 
 # LOAD NODE CONSTRUCTORS
-const DEFAULT_LOAD = (540.0, -36.0, 0.6)
-LoadNode(info::String; load=DEFAULT_LOAD) = LoadNode(NodeCommon(info), load, missing)
-LoadNode(info::String, position::Tuple{Float64, Float64}; load=DEFAULT_LOAD) = LoadNode(NodeCommon(info, position), load, missing)
-LoadNode(info::String, position::Tuple{Float64, Float64}, load::NTuple{3, Float64}) = LoadNode(NodeCommon(info, position), load, missing)
-LoadNode(info::String, position::Tuple{Float64, Float64}, m_rel::Float64; load=DEFAULT_LOAD) = LoadNode(NodeCommon(info, position), load, m_rel)
-LoadNode(position::Tuple{Float64, Float64}; load=DEFAULT_LOAD) = LoadNode("load", position; load=load)
-LoadNode(; load=DEFAULT_LOAD) = LoadNode("load"; load=load)
+const DEFAULT_LOAD_PARAMS = [540.0, -36.0, 0.6]  # default quadratic polynomial coefficients (kW vs °C)
+LoadNode(info::String; load::LoadSpec=LoadSpec(polynomial_load, copy(DEFAULT_LOAD_PARAMS))) = LoadNode(NodeCommon(info), load, missing)
+LoadNode(info::String, position::Tuple{Float64, Float64}; load::LoadSpec=LoadSpec(polynomial_load, copy(DEFAULT_LOAD_PARAMS))) = LoadNode(NodeCommon(info, position), load, missing)
+LoadNode(info::String, position::Tuple{Float64, Float64}, load::LoadSpec) = LoadNode(NodeCommon(info, position), load, missing)
+LoadNode(info::String, position::Tuple{Float64, Float64}, m_rel::Float64; load::LoadSpec=LoadSpec(polynomial_load, copy(DEFAULT_LOAD_PARAMS))) = LoadNode(NodeCommon(info, position), load, m_rel)
+LoadNode(position::Tuple{Float64, Float64}; load::LoadSpec=LoadSpec(polynomial_load, copy(DEFAULT_LOAD_PARAMS))) = LoadNode("load", position; load=load)
+LoadNode(; load::LoadSpec=LoadSpec(polynomial_load, copy(DEFAULT_LOAD_PARAMS))) = LoadNode("load"; load=load)
 
 # PRODUCER NODE CONSTRUCTORS
 ProducerNode(info::String) = ProducerNode(NodeCommon(info))

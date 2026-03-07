@@ -17,8 +17,7 @@
 
     @testset "power_consumption" begin
         # Default load curve: P(Tₐ) = 540 - 36·Tₐ + 0.6·Tₐ²  [kW]
-        # T₀ = 36 / (2·0.6) = 30°C  — peak above this temperature is clamped
-        load = LoadNode("L", (0.0, 0.0); load=(540.0, -36.0, 0.6))
+        load = LoadNode("L", (0.0, 0.0); load=LoadSpec(polynomial_load, [540.0, -36.0, 0.6]))
 
         # at Tₐ = -10°C: P = (540 + 360 + 60) · 1000 = 960 000 W
         @test power_consumption(load, -10.0) ≈ 960_000.0
@@ -26,10 +25,8 @@
         # at Tₐ = 0°C: P = 540 000 W
         @test power_consumption(load, 0.0) ≈ 540_000.0
 
-        # above T₀ the function is clamped to its minimum (at T₀ = 30°C)
-        p_at_peak = power_consumption(load, 30.0)
-        @test power_consumption(load, 50.0) ≈ p_at_peak
-        @test power_consumption(load, 100.0) ≈ p_at_peak
+        # at Tₐ = 30°C: polynomial minimum ≈ 0 (clamped to 0 by max(0, ...))
+        @test power_consumption(load, 30.0) ≥ 0.0
 
         # power_consumption with nothing ambient → 0
         @test power_consumption(load, nothing) == 0.0

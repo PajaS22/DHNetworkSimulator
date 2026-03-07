@@ -22,6 +22,7 @@ export InsulatedPipe, EmptyEdge, Plug, PipeParams
 export Network, NeighborDicts
 export EmptyNode, EmptyEdge, ZeroPipe
 export InsulatedPipe, JunctionNode, LoadNode, ProducerNode
+export LoadSpec, polynomial_load, DEFAULT_LOAD_PARAMS
 
 include("network_creation.jl")
 export fill_physical_params!
@@ -38,6 +39,7 @@ export rem_node!, rename_node!, remove_edge!
 export pipe_length, length, inner_diameter, heat_resistance_forward, heat_resistance_backward, mass_flow, m_rel
 export water_velocities, water_velocity
 export outneighbors, inneighbors, neighbors, degree, outdegree, indegree
+export validate_load_spec, set_load_fn!
 
 include("printing.jl")
 

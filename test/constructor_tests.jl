@@ -165,16 +165,27 @@
         l5 = LoadNode("L5", (0.0, 0.0), 0.5)
         @test l5.m_rel == 0.5
 
-        # with custom load tuple as 3rd positional arg
-        custom_load = (100.0, -5.0, 0.1)
-        l6 = LoadNode("L6", (0.0, 0.0), custom_load)
-        @test l6.load == custom_load
+        # with custom LoadSpec as 3rd positional arg
+        custom_spec = LoadSpec(polynomial_load, [100.0, -5.0, 0.1])
+        l6 = LoadNode("L6", (0.0, 0.0), custom_spec)
+        @test l6.load.fn === polynomial_load
+        @test l6.load.params == [100.0, -5.0, 0.1]
         @test ismissing(l6.m_rel)
 
         # with keyword load override
-        custom_load2 = (200.0, -10.0, 0.2)
-        l7 = LoadNode("L7"; load=custom_load2)
-        @test l7.load == custom_load2
+        custom_spec2 = LoadSpec(polynomial_load, [200.0, -10.0, 0.2])
+        l7 = LoadNode("L7"; load=custom_spec2)
+        @test l7.load.params == [200.0, -10.0, 0.2]
+
+        # default load spec uses polynomial_load and DEFAULT_LOAD_PARAMS
+        @test l1.load isa LoadSpec
+        @test l1.load.fn === polynomial_load
+        @test l1.load.params == DEFAULT_LOAD_PARAMS
+
+        # each node gets an independent copy of the default params
+        l1.load.params[1] = 999.0
+        l8 = LoadNode()
+        @test l8.load.params[1] == DEFAULT_LOAD_PARAMS[1]  # l8 unaffected
     end
 
 end
