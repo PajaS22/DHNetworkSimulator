@@ -275,7 +275,11 @@ function set_load_fn!(nw::Network, label::String, fn::Function, params::Abstract
     node = nw[label]
     node isa LoadNode || error("Node with label $label is not a load node.")
     p = Vector{Float64}(params)  # always copy so each node owns its params
+    try
     validate_load_spec(fn, p; T_a_range=T_a_range)
+    catch e
+        error("$label power validation failed: $(e.msg)")
+    end
     node.load = LoadSpec(fn, p)
     nw[label] = node
 end

@@ -83,3 +83,53 @@ plot_simulation_results(results, ["load1", "load2", "load3", "load4"], :T_load_o
 producer_plot = plot_simulation_results(results, :T_producer_in; label="in")  # plot mass flows for all loads
 plot_simulation_results(producer_plot, results, :T_producer_out; label="out")
 plot_simulation_results(results, :mass_flow_load)
+
+# ---------------------------------------------------------------------
+# EXAMPLE 3 - two different load models on individual nodes
+# ----------------------------------------------------------------------
+
+# create an artificial outdoor temperature measurement with sinusoidal variation to test the load models
+t = float.(collect(range(0, stop=3*60*60, step=60))) # simulate for three hours with 1 min time step
+Tₐ = @. -5 + 10*sin(2π*t/(100*60))
+
+function policy(t, Tₐ, T_back)
+    return ProducerOutput(mass_flow=40.0, temperature=90.0)
+end
+
+# Define a custom exponential load model: high demand at low temperatures, decays exponentially
+function exponential_load(params::Vector{Float64}, T_a::Float64)
+    # params = [P_max, T_ref, scale]
+    # returns kW
+    return max(0.0, params[1] * exp(-(T_a - params[2]) / params[3]))
+end
+
+# load1 and load2 use the default polynomial model with tweaked coefficients
+set_load_fn!(network, "load1", polynomial_load, [600.0, -40.0, 0.8])
+set_load_fn!(network, "load2", polynomial_load, [400.0, -20.0, 0.3])
+# load3 and load4 use the custom exponential model
+set_load_fn!(network, "load3", exponential_load, [500.0, -15.0, 20.0])
+set_load_fn!(network, "load4", exponential_load, [800.0, -10.0, 25.0])
+
+results3 = run_simulation(network, t, policy; T0_f=85.0, T0_b=60.0, ambient_temperature=Tₐ)
+
+plot_simulation_results(results3, :power_load; title="Load Power (mixed models)")
+plot_simulation_results(results3, :T_load_out; title="Load Outlet Temperatures (mixed models)")
+
+# ---------------------------------------------------------------------
+# EXAMPLE 4 - batch set same model with per-load parameters
+# ----------------------------------------------------------------------
+
+# Reset all loads to the polynomial model, each with its own calibrated parameters
+params_dict = Dict(
+    "load1" => [700.0, -45.0, 1.0],
+    "load2" => [400.0, -22.0, 0.4],
+    "load3" => [420.0, -30.0, 0.6],
+    "load4" => [900.0, -50.0, 1.2],
+)
+set_load_fn!(network, polynomial_load, params_dict)
+
+results4 = run_simulation(network, t, policy; T0_f=90.0, T0_b=60.0, ambient_temperature=Tₐ)
+
+plot_simulation_results(results4, :power_load; title="Load Power (per-load polynomial)")
+plot_simulation_results(results4, :T_load_out; title="Load Outlet Temperatures (per-load polynomial)")
+plot_simulation_results(results4, :T_producer_in; title="Producer Inlet Temperature (per-load polynomial)")

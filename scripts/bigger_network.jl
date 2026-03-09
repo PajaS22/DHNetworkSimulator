@@ -21,7 +21,6 @@ digraph, edge_params, node_names, node_positions, power_coefs, m_r = load("datas
 # in this file we have temperature measurements from 2024-05-01 to 2025-05-01
 outdoor_temperature_ts = load("datasets/outdoor_temperature_ts.jld2", "outdoor_temperature_ts")
 
-
 network = DHN.Network(digraph)
 fill_physical_params!(network, edge_params)
 name_nodes!(network, node_names)
@@ -86,7 +85,8 @@ plot_simulation_results(plot_vs1, results, :T_producer_out; lw=2, c=:green, labe
 pwr = results["M2_VS_1", :power_load]
 T1 = results["M2_VS_1", :T_load_in]
 T2 = results["M2_VS_1", :T_load_out]
-Plots.plot([pwr, T1-T2], xlabel="Time Step", ylabel="Power Load (kW)", title="Power Load Over Time")
+p = Plots.plot(pwr, xlabel="Time Step", ylabel="Power Load (kW)", title="Power Load Over Time", label="Power Load", legend=:topleft, linestyle=:solid)
+Plots.plot!(Plots.twinx(), T1-T2, ylabel="Temperature Drop (°C)", label="Temperature Drop", color=:red, legend=:topright, linestyle=:dash)
 
 
 plot = plot_simulation_results(results, :T_load_out)   # add load output temperatures to the same plot
@@ -135,7 +135,7 @@ Tₐ_vec = Tₐ[:, :T_a_avg] # convert TSFrame to vector of outdoor temperatures
 
 t =  index(Tₐ) # get time vector DateTime format
 
-# sinusoidal mass flow and temperature
+# sinusoidal temperature and triangle mass flow
 function policy(t, Tₐ, T_back)
     t_sec = Dates.value.(t)/1000 # convert from milliseconds to seconds
     mass_flow = 65 + 40 * abs(mod(t_sec / (24*3600), 1) - 0.5)

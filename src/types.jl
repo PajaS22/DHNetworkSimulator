@@ -87,9 +87,11 @@ Any number of coefficients is supported:
 - `params = [p₀, p₁]` — linear
 - `params = [p₀]` — constant
 
+The function returns zero for ambient temperatures above 30 °C to prevent unrealistic behavior in the summer.
+
 See also: [`LoadSpec`](@ref).
 """
-polynomial_load(params::Vector{Float64}, T_a::Float64) = sum(params[i] * T_a^(i-1) for i in eachindex(params))
+polynomial_load(params::Vector{Float64}, T_a::Float64) = T_a < 30 ? sum(params[i] * T_a^(i-1) for i in eachindex(params)) : 0
 
 """Load specification pairing a power demand function with its parameters.
 
@@ -431,12 +433,13 @@ JunctionNode() = JunctionNode("junction")
 
 # LOAD NODE CONSTRUCTORS
 const DEFAULT_LOAD_PARAMS = [540.0, -36.0, 0.6]  # default quadratic polynomial coefficients (kW vs °C)
-LoadNode(info::String; load::LoadSpec=LoadSpec(polynomial_load, copy(DEFAULT_LOAD_PARAMS))) = LoadNode(NodeCommon(info), load, missing)
-LoadNode(info::String, position::Tuple{Float64, Float64}; load::LoadSpec=LoadSpec(polynomial_load, copy(DEFAULT_LOAD_PARAMS))) = LoadNode(NodeCommon(info, position), load, missing)
+LoadSpec() = LoadSpec(polynomial_load, copy(DEFAULT_LOAD_PARAMS)) # default LoadSpec with the polynomial_load function and default parameters
+LoadNode(info::String; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info), load, missing)
+LoadNode(info::String, position::Tuple{Float64, Float64}; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info, position), load, missing)
 LoadNode(info::String, position::Tuple{Float64, Float64}, load::LoadSpec) = LoadNode(NodeCommon(info, position), load, missing)
-LoadNode(info::String, position::Tuple{Float64, Float64}, m_rel::Float64; load::LoadSpec=LoadSpec(polynomial_load, copy(DEFAULT_LOAD_PARAMS))) = LoadNode(NodeCommon(info, position), load, m_rel)
-LoadNode(position::Tuple{Float64, Float64}; load::LoadSpec=LoadSpec(polynomial_load, copy(DEFAULT_LOAD_PARAMS))) = LoadNode("load", position; load=load)
-LoadNode(; load::LoadSpec=LoadSpec(polynomial_load, copy(DEFAULT_LOAD_PARAMS))) = LoadNode("load"; load=load)
+LoadNode(info::String, position::Tuple{Float64, Float64}, m_rel::Float64; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info, position), load, m_rel)
+LoadNode(position::Tuple{Float64, Float64}; load::LoadSpec=LoadSpec()) = LoadNode("load", position; load=load)
+LoadNode(; load::LoadSpec=LoadSpec()) = LoadNode("load"; load=load)
 
 # PRODUCER NODE CONSTRUCTORS
 ProducerNode(info::String) = ProducerNode(NodeCommon(info))

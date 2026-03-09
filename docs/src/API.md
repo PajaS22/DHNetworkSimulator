@@ -28,6 +28,8 @@ DHNetworkSimulator.InsulatedPipe
 DHNetworkSimulator.ZeroPipe
 DHNetworkSimulator.Plug
 DHNetworkSimulator.EmptyEdge
+
+DHNetworkSimulator.LoadSpec
 ```
 
 ### Simulation I/O
@@ -101,6 +103,14 @@ DHNetworkSimulator.collect_exiting_water_plugs!
 DHNetworkSimulator.combine_plugs
 DHNetworkSimulator.merge_same_temperature_plugs!
 DHNetworkSimulator.merge_water_plug_vectors!
+```
+
+## Load power specification
+
+```@docs
+DHNetworkSimulator.polynomial_load
+DHNetworkSimulator.validate_load_spec
+DHNetworkSimulator.set_load_fn!
 ```
 
 ## Simulation
