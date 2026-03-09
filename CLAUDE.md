@@ -86,6 +86,13 @@ function policy(t, T_ambient, T_back) -> ProducerOutput(mass_flow=..., temperatu
 function policy(t, T_ambient) -> ProducerOutput(mass_flow=..., temperature=...)
 ```
 
+### Documentation Workflow
+
+Whenever a function, type, or constructor is added or changed in `src/`, also:
+1. Add/update its docstring in the source file.
+2. Add it to the appropriate `@docs` block in `docs/src/API.md`.
+3. Ensure any `@ref` cross-links in docstrings point to entries that are actually included in `API.md`.
+
 ### GLMakie Environment Guard
 
 `DHNetworkSimulator.jl` skips loading GLMakie when `GITHUB_ACTIONS=true` is set in the environment (for headless GitHub Actions). Visualization functions require GLMakie.
