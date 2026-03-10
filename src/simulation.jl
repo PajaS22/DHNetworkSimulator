@@ -1050,7 +1050,7 @@ function time_step_thermal_dynamics!(nw::Network, Δt::Float64, input::ProducerO
             consume_power!(output_plugs[load_label], P, Δt) && push!(clamped, load_label)
         end
         if !isempty(clamped)
-            @warn "Return temperature clamped to minimum ($(MINIMAL_RETURN_TEMPERATURE) °C) at load(s): $(join(sort(clamped), ", "))"
+            @warn "Return temperature clamped to minimum ($(MINIMAL_RETURN_TEMPERATURE) °C) at load(s) $(length(clamped)): $(join(sort(clamped), ", "))"
         end
     end
 
