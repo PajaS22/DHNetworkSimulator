@@ -144,7 +144,7 @@ end
     reset_highlights!(p, nw)
 
 Reset all node colors and sizes in an existing `graphplot` to their type-based
-defaults (as computed by [`node_colors`](@ref) and [`node_sizes`](@ref)).
+defaults (as computed by `node_colors` and `node_sizes`).
 
 `p` is the third return value of [`visualize_graph!`](@ref).
 """
