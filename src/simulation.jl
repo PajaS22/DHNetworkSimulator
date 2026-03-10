@@ -73,28 +73,39 @@ end
 ```julia
 struct ProducerOutput
     mass_flow::Float64
-    temperature::Float64
+    temperature::Union{Float64, Nothing}
 end
 ```
 
 # Fields
 - `mass_flow`: total mass flow injected into the network in kg/s.
 - `temperature`: producer outlet (supply) temperature in °C.
+  `nothing` is only valid in `:backward_only` mode, where the forward thermal
+  step is skipped and the producer supply temperature is not needed.
 
 # Usage
 The `policy` passed to [`run_simulation`](@ref) must return a `ProducerOutput`:
 
 ```julia
+# 3-argument form (used in :full mode)
 function policy(t, Tₐ, T_back)
     return ProducerOutput(mass_flow=15.0, temperature=90.0)
 end
+
+# 2-argument form (used in :forward_only, :backward_only, :hybrid modes)
+function policy(t, Tₐ)
+    return ProducerOutput(mass_flow=15.0, temperature=90.0)
+end
+
+# backward-only: temperature may be nothing
+policy_bwd = [ProducerOutput(m_flow[i], nothing) for i in 1:N]
 ```
 """
 struct ProducerOutput
     mass_flow::Float64
-    temperature::Float64
+    temperature::Union{Float64, Nothing}   # Nothing only valid in :backward_only mode
 end
-ProducerOutput(;mass_flow, temperature) = ProducerOutput(mass_flow, temperature)
+ProducerOutput(; mass_flow, temperature=nothing) = ProducerOutput(mass_flow, temperature)
 
 function Base.getindex(sr::SimulationResults, label::String, s::Symbol)
     # usage: sr["M2_VS_1", :mass_flow] to get mass flow time series for load node "M2_VS_1"
@@ -141,70 +152,99 @@ Base.show(io::IO, sr::SimulationResults) = print(io, "SimulationResults with $(l
 """Run a quasi-dynamic simulation of a district heating network.
 
 ```julia
-run_simulation(network, sim_time, policy; T0_f=60.0, T0_b=25.0, ambient_temperature=nothing, forward_only=false)
+run_simulation(network, sim_time, policy;
+               mode=:full, T_return_inject=nothing,
+               T0_f=60.0, T0_b=25.0, ambient_temperature=nothing)
 ```
 
 This is the main entry point for time stepping.
 
 REPEAT for N time steps:
-1. computes a steady-state hydraulic solution (mass flow distribution),
-2. advances thermal dynamics using the plug-flow method:
-     - forward/supply advection producer → loads,
-     - heat consumption at loads (skipped if `forward_only=true`),
-     - backward/return advection loads → producer (skipped if `forward_only=true`),
-     - heat losses to ambient.
+1. Computes a steady-state hydraulic solution (mass flow distribution).
+2. Advances thermal dynamics using the plug-flow method, following the
+   steps enabled by `mode` (see below).
 
-The thermal model uses the plug-flow method: water is represented as discrete slugs
-(see `Plug`) that are advected through the pipes each time step.
+# Simulation Modes
 
+| Step                | `:full` | `:forward_only` | `:backward_only` | `:hybrid` |
+|---------------------|---------|-----------------|------------------|-----------|
+| Hydraulics          | ✓       | ✓               | ✓                | ✓         |
+| Forward thermal     | ✓       | ✓               | —                | ✓         |
+| Load-model power    | ✓       | —               | —                | —         |
+| Inject T_return     | —       | —               | ✓                | ✓         |
+| Experimental power  | —       | —               | —                | ✓         |
+| Backward thermal    | ✓       | —               | ✓                | ✓         |
+
+- **`:full`** — complete simulation (default, unchanged behaviour).
+- **`:forward_only`** — supply-pipe transport only; validates pipe delays and heat losses.
+- **`:backward_only`** — return-pipe transport using injected measured return temperatures;
+  validates return pipes independently of the load model.
+- **`:hybrid`** — forward thermal + injected return temperatures + experimental power;
+  decouples pipe transport from the load model.
 
 # Output
-- `SimulationResults` struct containing time series of temperatures, flows, and powers for all nodes and edges.
+- `SimulationResults` struct with time series of temperatures, flows, and powers.
 
 # Arguments
 - `network::Network`: prepared network (producer/load nodes identified, pipes attached).
 - `sim_time`: equally spaced time vector.
     - `Vector{Float64}`: time in seconds.
     - `Vector{DateTime}`: timestamps (Δt is interpreted in seconds).
-- `policy::Function`: callback returning `ProducerOutput`.
-    - Signature in normal mode: `policy(t, Tₐ, T_back)::ProducerOutput`
-    - Signature in forward-only mode: `policy(t, Tₐ)::ProducerOutput`
-    - `t` is current time (Float64 in seconds or DateTime).
-    - `Tₐ` is ambient temperature at time `t` or `nothing`.
-    - `T_back` is the return temperature entering the producer in °C (from previous time step `k-1`). Only provided in normal mode, not in forward-only mode.
+- `policy`: producer setpoints, either:
+    - `Function` — called each step:
+        - 3-arg `policy(t, Tₐ, T_back)` in `:full` mode.
+        - 2-arg `policy(t, Tₐ)` in `:forward_only`, `:backward_only`, `:hybrid` modes.
+    - `Vector{ProducerOutput}` — pre-built vector of length N.
+      `temperature` may be `nothing` only in `:backward_only` mode.
 
 # Keyword Arguments
-- `T0_f`: initial temperature forward part of the network (producer → loads) (°C).
-- `T0_b`: initial temperature in backward part of the network (loads → producer) (°C).
-- `ambient_temperature`: optional `Vector{Float64}` of ambient (outdoor/atmospheric) temperatures (°C), length must match `sim_time`.
-- `forward_only`: if `true`, only forward simulation is performed (no power consumption or backward flow). Default `false`.
+- `mode`: simulation mode (`:full`, `:forward_only`, `:backward_only`, or `:hybrid`). Default `:full`.
+- `T_return_inject`: `Dict{String, Vector{Float64}}` mapping load labels to injected return
+  temperatures [°C] at each time step. Required for `:backward_only` and `:hybrid` modes.
+- `T0_f`: initial temperature in the forward (supply) pipes [°C]. Default 60.0.
+- `T0_b`: initial temperature in the backward (return) pipes [°C]. Default 25.0.
+- `ambient_temperature`: optional `Vector{Float64}` of ambient temperatures [°C], length N.
 
 # Returns
 - `SimulationResults`: time series of temperatures, flows, and powers.
 
 # Notes
+- In `:hybrid` mode, `power_load` may contain negative values when the injected return
+  temperature exceeds the simulated supply temperature at a load. This can occur due to
+  timing mismatches, sensor noise, or calibration offsets. Negative values are preserved
+  as diagnostics: a systematic negative bias signals a forward-pipe delay error.
+- In `:backward_only` with `temperature=nothing`, `T_producer_out` is NaN and
+  `power_producer` is `nothing`.
 - The network structure is validated once at the start via `check_network!`.
 - Time steps must be equally spaced.
+
+# Chaining example
+```julia
+# Hybrid run: get simulated T_load_out with real return temperatures
+sr_hyb = run_simulation(network, t, policy_vec; mode=:hybrid, T_return_inject=measured_T_v)
+
+# Extract T_load_out as inject for a backward-only follow-up
+T_inj2 = Dict(l => sr_hyb[l, :T_load_out] for l in keys(sr_hyb[:load_labels_dict]))
+sr_bwd = run_simulation(network, t, policy_bwd; mode=:backward_only, T_return_inject=T_inj2)
+```
 """
-function run_simulation(network::Network, sim_time::Union{Vector{Float64}, Vector{DateTime}}, policy::Function; 
-                        T0_f::Float64=60.0, T0_b::Float64=25.0, ambient_temperature::Union{Vector{Float64}, Nothing}=nothing, forward_only::Bool=false)::SimulationResults
-    # simulate dynamics of the DH Network
-    # results are y(t) = f(x(t), u(t)), where u(t) are inputs: (mass_flow, input_temperature) for source node
-    # x0 is initial state of the network ... in default variant we fill the pipes with water of 25 °C
-    # inputs are (mass_flow_input, temp_input) vectors of length N (number of time steps)
-    # policy(t, Tₐ, T_back)::ProducerOutput
-    #   t is current time (in seconds or DateTime)
-    #   Tₐ is ambient temperature at time t or nothing if ambient temperature is not provided
-    #   T_back is the temperature of water returning to producer at time t (if t > 1, otherwise use initial T0_b)
+function run_simulation(
+        network  :: Network,
+        sim_time :: Union{Vector{Float64}, Vector{DateTime}},
+        policy   :: Union{Function, Vector{ProducerOutput}};
+        mode                :: Symbol = :full,
+        T_return_inject     :: Union{Dict{String, Vector{Float64}}, Nothing} = nothing,
+        T0_f                :: Float64 = 60.0,
+        T0_b                :: Float64 = 25.0,
+        ambient_temperature :: Union{Vector{Float64}, Nothing} = nothing) :: SimulationResults
 
-    # check network structure (one producer, connected, acyclic,...), also updates neighbor dicts if they are not built yet
-    check_network!(network::Network)
+    check_network!(network)
 
-    # check time steps are equally spaced
-    if(eltype(sim_time) <: Float64)
+    # ---- parse time vector ----
+    if eltype(sim_time) <: Float64
         dt = diff(sim_time)
-    elseif (eltype(sim_time) <: DateTime)
-        dt = diff(sim_time) .|> Dates.Second .|> Dates.value # compute time steps in seconds and convert to Int
+    elseif eltype(sim_time) <: DateTime
+        dt = diff(sim_time) .|> Dates.Second .|> Dates.value
     else
         error("Unsupported time vector element type: $(eltype(sim_time)). Expected Float64 or DateTime.")
     end
@@ -212,99 +252,167 @@ function run_simulation(network::Network, sim_time::Union{Vector{Float64}, Vecto
         error("Time steps are not equally spaced!")
     end
     Δt = float(dt[1])
+    N  = length(sim_time)
 
-    # ckeck policy function output for the first time step
-    try
-        Tₐ = isnothing(ambient_temperature) ? nothing : ambient_temperature[1]
-        test_output = forward_only ? policy(sim_time[1], Tₐ) : policy(sim_time[1], Tₐ, T0_b)
-        if test_output isa ProducerOutput
-            # ok
-        else
-            error("Policy function must return a ProducerOutput struct!")
+    # ---- validate inputs ----
+    mode ∈ (:full, :forward_only, :backward_only, :hybrid) ||
+        error("Invalid mode: :$mode. Must be one of :full, :forward_only, :backward_only, :hybrid.")
+
+    if mode ∈ (:backward_only, :hybrid)
+        isnothing(T_return_inject) &&
+            error("T_return_inject is required for mode=:$mode.")
+        for (k, v) in T_return_inject
+            k ∈ network.load_labels ||
+                error("T_return_inject key \"$k\" is not a valid load label in the network.")
+            length(v) == N ||
+                error("T_return_inject[\"$k\"] has length $(length(v)), expected $N.")
         end
-    catch e
-        error("Error when calling policy function for the first time step: ", e)
     end
 
-    # fill pipes with initial temperatures
+    if policy isa Vector{ProducerOutput}
+        length(policy) == N ||
+            error("policy vector has length $(length(policy)), expected $N (length of sim_time).")
+        if mode ∈ (:full, :forward_only, :hybrid)
+            any(p -> isnothing(p.temperature), policy) &&
+                error("policy Vector contains ProducerOutput with temperature=nothing, which is not allowed in mode=:$mode.")
+        end
+    else
+        # test function policy for the first time step
+        try
+            Tₐ_test  = isnothing(ambient_temperature) ? nothing : ambient_temperature[1]
+            test_out = if mode == :full
+                policy(sim_time[1], Tₐ_test, T0_b)
+            else
+                policy(sim_time[1], Tₐ_test)
+            end
+            test_out isa ProducerOutput ||
+                error("Policy function must return a ProducerOutput struct.")
+            if mode ∈ (:full, :forward_only, :hybrid) && isnothing(test_out.temperature)
+                error("Policy function returned ProducerOutput with temperature=nothing, which is not allowed in mode=:$mode.")
+            end
+        catch e
+            error("Error calling policy for the first time step: ", e)
+        end
+    end
+
+    # ---- initialise ----
     fill_pipes_with_initial_temperature!(network, T0_f, T0_b)
 
-    N = length(sim_time)
-    num_loads = length(network.load_labels)
+    num_loads        = length(network.load_labels)
+    load_labels_cols = Dict(label => i for (i, label) in enumerate(network.load_labels))
 
-    # store results: each column corresponds to a load node, each row to a time step
-    results_mass_flow_producer = Vector{Float64}(undef, N)
-    results_mass_flow_load = Matrix{Float64}(undef, N, num_loads)
-    results_temperature_producer_out = Vector{Float64}(undef, N)
-    results_temperature_producer_in = forward_only ? nothing : Vector{Float64}(undef, N)
-    results_temperature_load_in = Matrix{Float64}(undef, N, num_loads)
-    results_temperature_load_out = forward_only ? nothing : Matrix{Float64}(undef, N, num_loads)
-    results_power_consumption = forward_only ? nothing : Matrix{Float64}(undef, N, num_loads)
-    
-    # mapping from load node label to column index in results matrices...
-    load_labels_cols = Dict(label => i for (i, label) in enumerate(network.load_labels)) 
+    results_mass_flow_producer       = Vector{Float64}(undef, N)
+    results_mass_flow_load           = Matrix{Float64}(undef, N, num_loads)
+    results_temperature_producer_out = fill(NaN, N)
+    results_temperature_load_in      = fill(NaN, N, num_loads)
+    results_temperature_producer_in  = mode == :forward_only ? nothing : fill(NaN, N)
+    results_temperature_load_out     = mode == :forward_only ? nothing : fill(NaN, N, num_loads)
+    results_power_consumption        = mode ∈ (:forward_only, :backward_only) ? nothing : fill(NaN, N, num_loads)
 
-    
+    # ---- time loop ----
     for i in 1:N
-        # GET INPUTS FOR THIS TIME STEP
         Tₐ = isnothing(ambient_temperature) ? nothing : ambient_temperature[i]
-        if forward_only
-            input = policy(sim_time[i], Tₐ)
+
+        # policy dispatch
+        input = if policy isa Vector{ProducerOutput}
+            policy[i]
+        elseif mode == :full
+            T_back = i > 1 ? results_temperature_producer_in[i-1] : T0_b
+            policy(sim_time[i], Tₐ, T_back)
         else
-            T_back = i > 1 ? results_temperature_producer_in[i-1] : T0_b 
-            input = policy(sim_time[i], Tₐ, T_back)
+            policy(sim_time[i], Tₐ)
         end
 
-        results_temperature_producer_out[i] = input.temperature
+        results_temperature_producer_out[i] = isnothing(input.temperature) ? NaN : input.temperature
         results_mass_flow_producer[i] = input.mass_flow
 
-
-        # FORWARD SIMULATION STEP
+        # hydraulics (always)
         steady_state_hydronynamics!(network, input.mass_flow)
-        Tₐ = isnothing(ambient_temperature) ? nothing : ambient_temperature[i]
-        output_plugs = time_step_thermal_dynamics_forward!(network, Δt, input.temperature, Tₐ)
-        
-        # log output values
-        for (load_label, plug) in output_plugs
-            col_idx = load_labels_cols[load_label]
-            results_temperature_load_in[i, col_idx] = plug.T
-            results_mass_flow_load[i, col_idx] = plug.m / Δt
+
+        # return_plugs collects cooled load plugs to feed into the backward step
+        return_plugs = Dict{String, Plug}()
+
+        # forward thermal (all modes except :backward_only)
+        if mode != :backward_only
+            output_plugs = time_step_thermal_dynamics_forward!(network, Δt, input.temperature, Tₐ)
+            for (load_label, plug) in output_plugs
+                col = load_labels_cols[load_label]
+                results_temperature_load_in[i, col] = plug.T
+                results_mass_flow_load[i, col]      = plug.m / Δt
+            end
+            return_plugs = output_plugs
+        else
+            # backward_only: read mass flows from network nodes; T_load_in is undefined (NaN)
+            for (label, col) in load_labels_cols
+                results_mass_flow_load[i, col] = network[label].common.mass_flow
+            end
         end
 
-        # POWER CONSUMPTION STEP (skip in forward-only mode)
-        if !forward_only
-            Tₐ = isnothing(ambient_temperature) ? nothing : ambient_temperature[i] # use 15 °C as default ambient temperature
-            for load_label in keys(output_plugs)
-                col_idx = load_labels_cols[load_label]
-                # power depends on outdoor temperature
+        # load-model power (:full only)
+        if mode == :full
+            for load_label in keys(return_plugs)
+                col = load_labels_cols[load_label]
                 P = power_consumption(network[load_label], Tₐ)
-                results_power_consumption[i, col_idx] = P / 1000.0 # log power consumption in kW
-                
-                # cool plug according to power consumed before feeding it back to return flow
-                consume_power!(output_plugs[load_label], P, Δt)
-                results_temperature_load_out[i, col_idx] = output_plugs[load_label].T
+                results_power_consumption[i, col] = P / 1000.0   # kW
+                consume_power!(return_plugs[load_label], P, Δt)
+                results_temperature_load_out[i, col] = return_plugs[load_label].T
             end
+        end
 
-            # BACKWARD SIMULATION STEP
-            incoming_plug = time_step_thermal_dynamics_backward!(network, Δt, output_plugs, Tₐ)
+        # inject measured return temperatures (:backward_only and :hybrid)
+        if mode ∈ (:backward_only, :hybrid)
+            for (label, col) in load_labels_cols
+                haskey(T_return_inject, label) || continue
+                m_mass = results_mass_flow_load[i, col] * Δt
+                T_inj  = T_return_inject[label][i]
+                return_plugs[label] = Plug(T_inj, m_mass)
+                results_temperature_load_out[i, col] = T_inj
+                if mode == :hybrid
+                    T_in  = results_temperature_load_in[i, col]
+                    m_dot = results_mass_flow_load[i, col]
+                    # P_exp [kW] = ṁ·cₚ·(T_load_in − T_load_out_inject)
+                    # May be negative when the injected return temperature exceeds the simulated
+                    # supply temperature at a load.  This can occur due to:
+                    #   • timing mismatches between the simulation grid and the measurement grid
+                    #     (resampling artefacts),
+                    #   • measurement noise and sensor calibration offsets,
+                    #   • real but short-lived thermal events not captured by the load model.
+                    # Negative values are preserved (not clamped) because they are diagnostic:
+                    # a systematic negative bias signals a forward-pipe delay error.
+                    results_power_consumption[i, col] = m_dot * WATER_SPECIFIC_HEAT * (T_in - T_inj) / 1000.0
+                end
+            end
+        end
+
+        # backward thermal (all modes except :forward_only)
+        if mode != :forward_only && !isempty(return_plugs)
+            incoming_plug = time_step_thermal_dynamics_backward!(network, Δt, return_plugs, Tₐ)
             results_temperature_producer_in[i] = incoming_plug.T
         end
     end
 
-    # compute producer power output in MW based on mass flow and temperature difference between producer input and output
-    # P[k] = ̇m[k] * c * (T_out[k] - T_in[k-1]) / 1_000_000.0 to convert from W to MW
-    power_producer = forward_only ? nothing : @. (results_temperature_producer_out[2:end] - results_temperature_producer_in[1:end-1]) * results_mass_flow_producer[1:end-1] * WATER_SPECIFIC_HEAT / 1_000_000.0 # in MW
+    # ---- producer power [MW] ----
+    power_producer = if mode == :forward_only
+        nothing
+    elseif mode == :backward_only && all(isnan, results_temperature_producer_out)
+        nothing
+    else
+        @. (results_temperature_producer_out[2:end] - results_temperature_producer_in[1:end-1]) *
+           results_mass_flow_producer[1:end-1] * WATER_SPECIFIC_HEAT / 1_000_000.0
+    end
 
-    return SimulationResults(time=sim_time,
-                            mass_flow_load=results_mass_flow_load,
-                            mass_flow_producer=results_mass_flow_producer,
-                            T_load_in=results_temperature_load_in,
-                            T_load_out=results_temperature_load_out,
-                            T_producer_in=results_temperature_producer_in,
-                            T_producer_out=results_temperature_producer_out, 
-                            power_load=results_power_consumption,
-                            power_producer=power_producer, 
-                            load_labels_dict=load_labels_cols)
+    return SimulationResults(
+        time               = sim_time,
+        mass_flow_load     = results_mass_flow_load,
+        mass_flow_producer = results_mass_flow_producer,
+        T_load_in          = results_temperature_load_in,
+        T_load_out         = results_temperature_load_out,
+        T_producer_in      = results_temperature_producer_in,
+        T_producer_out     = results_temperature_producer_out,
+        power_load         = results_power_consumption,
+        power_producer     = power_producer,
+        load_labels_dict   = load_labels_cols
+    )
 end
 
 # ------------------------------------------------- #

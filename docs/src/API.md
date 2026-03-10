@@ -75,6 +75,9 @@ DHNetworkSimulator.inneighbors
 
 ```@docs
 DHNetworkSimulator.visualize_graph!
+DHNetworkSimulator.NodeHighlight
+DHNetworkSimulator.highlight_nodes!
+DHNetworkSimulator.reset_highlights!
 DHNetworkSimulator.edge_info
 DHNetworkSimulator.edge_info_hover
 DHNetworkSimulator.edge_infos

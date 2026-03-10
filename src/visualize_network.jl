@@ -79,6 +79,82 @@ end
 edge_infos(mg::MetaGraph) = [edge_info(mg[src, dst]) for (src, dst) in edge_labels(mg)]
 
 
+"""
+    NodeHighlight(; color=nothing, size=nothing)
+
+Specifies visual overrides for a single node in [`highlight_nodes!`](@ref).
+
+Both fields are optional; `nothing` means "keep the default for this node type".
+
+# Fields
+- `color`: A Makie-compatible color (e.g. `colorant"red"`, `RGBAf(1,0,0,1)`) or `nothing`.
+- `size`: Node marker size in pixels (positive number) or `nothing`.
+
+# Example
+```julia
+highlights = Dict(
+    "Load_1" => NodeHighlight(color=colorant"orange", size=30),
+    "Junction_2" => NodeHighlight(size=10),
+)
+highlight_nodes!(p, nw, highlights)
+```
+"""
+struct NodeHighlight
+    color   # nothing or a Makie-compatible color
+    size    # nothing or a number
+end
+NodeHighlight(; color=nothing, size=nothing) = NodeHighlight(color, size)
+
+"""
+    highlight_nodes!(p, nw, highlights::Dict{String, NodeHighlight})
+
+Update node colors and sizes in an existing `graphplot` according to `highlights`.
+
+`p` is the third return value of [`visualize_graph!`](@ref).  Each key in
+`highlights` is a node label; the associated [`NodeHighlight`](@ref) overrides
+its color and/or size.  Nodes not present in `highlights` are unchanged.
+
+# Example
+```julia
+_, _, p = visualize_graph!(nw)
+highlight_nodes!(p, nw, Dict(
+    "Load_1" => NodeHighlight(color=colorant"red", size=30),
+))
+```
+"""
+function highlight_nodes!(p, nw::Network, highlights::Dict{String, NodeHighlight})
+    mg = nw.mg
+    colors = copy(p.node_color[])
+    sizes  = copy(p.node_size[])
+    for (label, h) in highlights
+        i = code_for(mg, label)
+        if !isnothing(h.color)
+            colors[i] = h.color
+        end
+        if !isnothing(h.size)
+            sizes[i] = h.size
+        end
+    end
+    p.node_color[] = colors
+    p.node_size[]  = sizes
+    return nothing
+end
+
+"""
+    reset_highlights!(p, nw)
+
+Reset all node colors and sizes in an existing `graphplot` to their type-based
+defaults (as computed by [`node_colors`](@ref) and [`node_sizes`](@ref)).
+
+`p` is the third return value of [`visualize_graph!`](@ref).
+"""
+function reset_highlights!(p, nw::Network)
+    mg = nw.mg
+    p.node_color[] = node_colors(mg)
+    p.node_size[]  = node_sizes(mg)
+    return nothing
+end
+
 """Visualize a `Network` using GraphMakie.
 
 Returns `(figure, axis, plot)` from `GraphMakie.graphplot`. If edge mass flows
