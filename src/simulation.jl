@@ -301,6 +301,8 @@ function run_simulation(
     num_loads        = length(network.load_labels)
     load_labels_cols = Dict(label => i for (i, label) in enumerate(network.load_labels))
 
+    clamped_loads = Set{String}()  # tracks loads where return T was clamped (for a single end-of-run warning)
+
     results_mass_flow_producer       = Vector{Float64}(undef, N)
     results_mass_flow_load           = Matrix{Float64}(undef, N, num_loads)
     results_temperature_producer_out = fill(NaN, N)
@@ -354,7 +356,7 @@ function run_simulation(
                 col = load_labels_cols[load_label]
                 P = power_consumption(network[load_label], Tₐ)
                 results_power_consumption[i, col] = P / 1000.0   # kW
-                consume_power!(return_plugs[load_label], P, Δt)
+                consume_power!(return_plugs[load_label], P, Δt) && push!(clamped_loads, load_label)
                 results_temperature_load_out[i, col] = return_plugs[load_label].T
             end
         end
@@ -382,6 +384,16 @@ function run_simulation(
                     results_power_consumption[i, col] = m_dot * WATER_SPECIFIC_HEAT * (T_in - T_inj) / 1000.0
                 end
             end
+            # In :backward_only every load needs a return plug for the backward step.
+            # Loads absent from T_return_inject (no measurement available) fall back to
+            # T0_b so the backward thermal step always receives a complete plug dict.
+            # Their T_load_out entries remain NaN and they are excluded from evaluation.
+            if mode == :backward_only
+                for (label, col) in load_labels_cols
+                    haskey(return_plugs, label) && continue
+                    return_plugs[label] = Plug(T0_b, results_mass_flow_load[i, col] * Δt)
+                end
+            end
         end
 
         # backward thermal (all modes except :forward_only)
@@ -389,6 +401,12 @@ function run_simulation(
             incoming_plug = time_step_thermal_dynamics_backward!(network, Δt, return_plugs, Tₐ)
             results_temperature_producer_in[i] = incoming_plug.T
         end
+    end
+
+    # ---- warn once about clamped return temperatures ----
+    if !isempty(clamped_loads)
+        labels_str = join(sort(collect(clamped_loads)), ", ")
+        @warn "Return temperature was clamped to the minimum ($(MINIMAL_RETURN_TEMPERATURE) °C) at one or more time steps for load(s): $labels_str"
     end
 
     # ---- producer power [MW] ----
@@ -898,18 +916,19 @@ power_consumption(node::LoadNode, Tₐ::Nothing) = 0.0
 """Reduce a plug temperature by consuming `power` over a time step.
 
 `power` is in Watts and `Δt` is in seconds. Updates `p` in-place.
+
+Returns `true` if the return temperature was clamped to `MINIMAL_RETURN_TEMPERATURE`,
+`false` otherwise.
 """
-function consume_power!(p::Plug, power::Float64, Δt::Float64)
-    # compute new temperature of the plug after consuming power for time step Δt
-    # energy consumed is E = P * Δt, which reduces the thermal energy of the plug: m*cₚ*ΔT = E
-    ρ = WATER_DENSITY  # density in kg/m^3
+function consume_power!(p::Plug, power::Float64, Δt::Float64)::Bool
     cₚ = WATER_SPECIFIC_HEAT  # specific heat capacity in J/(kg·K)
     ΔT = power * Δt / (p.m * cₚ)  # temperature drop in K
-    if(p.T - ΔT < MINIMAL_RETURN_TEMPERATURE)
-        @warn "Return temperature at load too low, limiting to minimal return temperature of $MINIMAL_RETURN_TEMPERATURE °C to avoid unphysical results."
-        ΔT = p.T - MINIMAL_RETURN_TEMPERATURE # limit temperature drop to avoid unphysical results
+    if p.T - ΔT < MINIMAL_RETURN_TEMPERATURE
+        p.T = MINIMAL_RETURN_TEMPERATURE
+        return true
     end
     p.T -= ΔT
+    return false
 end
 
 """Merge multiple plug sequences into one sequence (return-side merging).
@@ -1025,9 +1044,13 @@ function time_step_thermal_dynamics!(nw::Network, Δt::Float64, input::ProducerO
 
     if !isnothing(ambient_temperature)
         Tₐ_load = ambient_temperature
+        clamped = String[]
         for load_label in keys(output_plugs)
             P = power_consumption(nw[load_label], Tₐ_load)
-            consume_power!(output_plugs[load_label], P, Δt)
+            consume_power!(output_plugs[load_label], P, Δt) && push!(clamped, load_label)
+        end
+        if !isempty(clamped)
+            @warn "Return temperature clamped to minimum ($(MINIMAL_RETURN_TEMPERATURE) °C) at load(s): $(join(sort(clamped), ", "))"
         end
     end
 

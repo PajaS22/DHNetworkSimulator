@@ -7,22 +7,29 @@
     # Simple 2-load branching network used by most testsets.
     # Topology: producer → (pipe 50 m) → junction → (pipe 50 m) → load1 (m_rel=1.0)
     #                                               → (pipe 50 m) → load2 (m_rel=2.0)
+    #
+    # The unequal m_rel values (1.0 vs 2.0) ensure the hydraulic split is non-trivial:
+    # load1 receives 1/3 of total flow, load2 receives 2/3.  Equal pipes (all 50 m) keep
+    # transit times the same across branches so transport-delay tests stay simple.
     function make_network()
         nw = Network()
-        nw["producer"] = ProducerNode((0.0, 0.0))
-        nw["junction"] = JunctionNode((50.0, 0.0))
-        nw["load1"]    = LoadNode("L1", (100.0,  50.0), 1.0)
-        nw["load2"]    = LoadNode("L2", (100.0, -50.0), 2.0)
-        nw["producer", "junction"] = InsulatedPipe(50)
-        nw["junction",  "load1"]   = InsulatedPipe(50)
-        nw["junction",  "load2"]   = InsulatedPipe(50)
+        nw["producer"] = ProducerNode((0.0, 0.0))           # heat source at origin
+        nw["junction"] = JunctionNode((50.0, 0.0))          # single branch point, 50 m from producer
+        nw["load1"]    = LoadNode("L1", (100.0,  50.0), 1.0)  # m_rel=1.0 → 1/3 of total flow
+        nw["load2"]    = LoadNode("L2", (100.0, -50.0), 2.0)  # m_rel=2.0 → 2/3 of total flow
+        nw["producer", "junction"] = InsulatedPipe(50)      # supply main, 50 m
+        nw["junction",  "load1"]   = InsulatedPipe(50)      # branch to load1, 50 m
+        nw["junction",  "load2"]   = InsulatedPipe(50)      # branch to load2, 50 m
         return nw
     end
 
-    t  = float.(collect(range(0, stop=60*60, step=60)))  # 1 h, 1-min steps
+    t  = float.(collect(range(0, stop=60*60, step=60)))  # 1 h simulation, 1-min time steps (N=61)
     N  = length(t)
-    Tₐ = fill(5.0, N)                                    # constant 5 °C ambient
+    Tₐ = fill(5.0, N)   # constant 5 °C outdoor temperature — cold enough for nonzero load power
 
+    # Constant return temperatures injected at each load for :backward_only and :hybrid tests.
+    # Values are typical DH return temps (35–40 °C) and are lower than the 60–80 °C supply,
+    # so hybrid power (ṁ·Cₚ·(T_in − T_out)) is positive under normal conditions.
     T_inject = Dict("load1" => fill(40.0, N), "load2" => fill(35.0, N))
 
     # ─────────────────────────────────────────────────────────────────────────
