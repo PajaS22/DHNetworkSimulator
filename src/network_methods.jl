@@ -171,6 +171,13 @@ position(v::NT)  where {NT<:NodeType} = !ismissing(v.common.position) ? (v.commo
 positions(mg::MetaGraph) = [position(v) for v in vertices_data(mg)]
 distance(v1::NodeType, v2::NodeType) = sqrt((v1.common.position[1] - v2.common.position[1])^2 + (v1.common.position[2] - v2.common.position[2])^2)
 
+# vector operations for positions
+Base.:+(a::Tuple{Float64, Float64}, b::Tuple{Float64, Float64}) = (a[1] + b[1], a[2] + b[2])
+Base.:-(a::Tuple{Float64, Float64}, b::Tuple{Float64, Float64}) = (a[1] - b[1], a[2] - b[2])
+Base.:*(a::Float64, b::Tuple{Float64, Float64}) = (a * b[1], a * b[2])
+Base.:*(a::Tuple{Float64, Float64}, b::Float64) = (a[1] * b, a[2] * b)
+Base.:/(a::Tuple{Float64, Float64}, b::Float64) = (a[1] / b, a[2] / b)
+
 # ------------------------------------------------ #
 # NODE TYPE SPECIFIC METHODS
 # ------------------------------------------------ #
