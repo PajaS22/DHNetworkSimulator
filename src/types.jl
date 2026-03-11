@@ -139,6 +139,7 @@ end
 # Constructors
 - `LoadNode(; load=LoadSpec(polynomial_load, [...]))`
 - `LoadNode(info::String; load=...)`
+- `LoadNode(info::String, m_rel::Float64; load=...)`: set `m_rel` without specifying a position.
 - `LoadNode(position::Tuple{Float64, Float64}; load=...)`
 - `LoadNode(info::String, position::Tuple{Float64, Float64}; load=...)`
 - `LoadNode(info::String, position::Tuple{Float64, Float64}, m_rel::Float64; load=...)`: set `m_rel` directly at construction.
@@ -435,6 +436,7 @@ JunctionNode() = JunctionNode("junction")
 const DEFAULT_LOAD_PARAMS = [540.0, -36.0, 0.6]  # default quadratic polynomial coefficients (kW vs °C)
 LoadSpec() = LoadSpec(polynomial_load, copy(DEFAULT_LOAD_PARAMS)) # default LoadSpec with the polynomial_load function and default parameters
 LoadNode(info::String; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info), load, missing)
+LoadNode(info::String, m_rel::Float64; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info), load, m_rel)
 LoadNode(info::String, position::Tuple{Float64, Float64}; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info, position), load, missing)
 LoadNode(info::String, position::Tuple{Float64, Float64}, load::LoadSpec) = LoadNode(NodeCommon(info, position), load, missing)
 LoadNode(info::String, position::Tuple{Float64, Float64}, m_rel::Float64; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info, position), load, m_rel)

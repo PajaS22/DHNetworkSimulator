@@ -47,6 +47,8 @@ include("visualize_network.jl")
 export visualize_graph!
 export NodeHighlight, highlight_nodes!, reset_highlights!
 export edge_info, edge_info_hover, edge_infos
+export compute_zero_pipe_load_positions
+export DEFAULT_ZERO_PIPE_K_ATTRACTION, DEFAULT_ZERO_PIPE_K_REPULSION
 
 include("simulation.jl")
 export run_simulation

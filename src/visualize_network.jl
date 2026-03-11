@@ -2,6 +2,14 @@
 # visualization function for Network using GraphMakie
 # ---------------------------------------------------------------------
 
+# Global defaults for zero-pipe load auto-positioning (attraction-repulsion).
+# `k_attraction` is the spring constant pulling the load toward its ZeroPipe source.
+# `k_repulsion`  is the repulsion strength pushing it away from other positioned nodes.
+# Both are dimensionless — forces are normalised by the typical inter-node distance
+# computed at call time, so the defaults work regardless of coordinate units.
+const DEFAULT_ZERO_PIPE_K_ATTRACTION = 10.0
+const DEFAULT_ZERO_PIPE_K_REPULSION  = 0.3
+
 node_size(::JunctionNode) = 0   # specific size for junction nodes
 node_size(::ProducerNode) = 25  # specific size for producer nodes
 node_size(::NodeType) = 18      # default size for other node types
@@ -19,7 +27,11 @@ node_label(::JunctionNode) = ""  # no label for junction nodes
 node_label(mg::MetaGraph, i::Int) = node_label(vertex_idx(mg, i))
 node_labels(mg::MetaGraph) = [node_label(v) for v in vertices_data(mg)]
 
-edge_colors(mg::MetaGraph) = [edge_color(mg[src, dst]) for (src, dst) in edge_labels(mg)]  # default edge color
+edge_colors(mg::MetaGraph) = [edge_color(mg[src, dst]) for (src, dst) in edge_labels(mg)]
+
+edge_linestyle_val(::ZeroPipe) = (:dot, :dense)
+edge_linestyle_val(::EdgeType) = :solid
+edge_linestyles(mg::MetaGraph) = [edge_linestyle_val(mg[src, dst]) for (src, dst) in edge_labels(mg)]
 const max_velocity_for_color = 2.0 # m/s, velocity at which the color will be the most intense
 const min_velocity_for_color = 0.0 # m/s, velocity at which the color will be the least intense
 const colormap = cgrad(:lajolla) # color gradient for edge coloring based on velocity
@@ -155,18 +167,196 @@ function reset_highlights!(p, nw::Network)
     return nothing
 end
 
+# Returns the point on segment AB closest to point P.
+function _closest_point_on_segment(px, py, ax, ay, bx, by)
+    dx, dy = bx - ax, by - ay
+    len2   = dx^2 + dy^2
+    len2 < 1e-10 && return (ax, ay)  # degenerate segment → return A
+    t = clamp(((px - ax) * dx + (py - ay) * dy) / len2, 0.0, 1.0)
+    return (ax + t * dx, ay + t * dy)
+end
+
+"""
+    compute_zero_pipe_load_positions(mg; k_attraction, k_repulsion, max_iter) -> Dict{String, Tuple{Float64,Float64}}
+
+Find display positions for `LoadNode`s that have a missing position and are the destination
+of a `ZeroPipe` edge whose source is already positioned.
+
+The algorithm places each such load using an attraction-repulsion approach:
+- **Attraction** (spring): pulls the load toward its `ZeroPipe` source.
+- **Repulsion** (inverse-square): pushes the load away from every other positioned node.
+
+Forces are non-dimensionalised by the mean inter-node distance so that `k_attraction`
+and `k_repulsion` behave consistently regardless of coordinate units.
+
+# Keyword arguments
+- `k_attraction`: spring constant toward the ZeroPipe source (dimensionless, default [`DEFAULT_ZERO_PIPE_K_ATTRACTION`](@ref)).
+- `k_repulsion`: repulsion strength from other nodes (dimensionless, default [`DEFAULT_ZERO_PIPE_K_REPULSION`](@ref)).
+- `max_iter`: maximum number of gradient-descent steps per load (default 500).
+
+Returns a `Dict` mapping load label → computed `(x, y)` position. Only loads that
+actually need placement are included; nodes that already have a position are not modified.
+"""
+function compute_zero_pipe_load_positions(mg::MetaGraph;
+        k_attraction::Float64 = DEFAULT_ZERO_PIPE_K_ATTRACTION,
+        k_repulsion::Float64  = DEFAULT_ZERO_PIPE_K_REPULSION,
+        max_iter::Int = 500)
+
+    # Build a working dict of all currently positioned nodes.
+    positioned = Dict{String, Tuple{Float64, Float64}}()
+    for label in labels(mg)
+        p = position(mg[label])
+        if !ismissing(p)
+            positioned[label] = p
+        end
+    end
+
+    # Collect loads to place: dst of a ZeroPipe whose src is already positioned.
+    to_place = Tuple{String, String}[]
+    for (src_lbl, dst_lbl) in edge_labels(mg)
+        e = mg[src_lbl, dst_lbl]
+        if e isa ZeroPipe && mg[dst_lbl] isa LoadNode && ismissing(mg[dst_lbl].common.position)
+            haskey(positioned, src_lbl) && push!(to_place, (src_lbl, dst_lbl))
+        end
+    end
+
+    isempty(to_place) && return Dict{String, Tuple{Float64, Float64}}()
+
+    # Compute a typical inter-node distance for non-dimensionalisation.
+    pos_vals = collect(values(positioned))
+    typical = 1.0
+    if length(pos_vals) >= 2
+        n = length(pos_vals)
+        total = 0.0
+        for i in 1:n, j in i+1:n
+            total += sqrt((pos_vals[i][1] - pos_vals[j][1])^2 + (pos_vals[i][2] - pos_vals[j][2])^2)
+        end
+        typical = total / (n * (n - 1) / 2)
+    end
+
+    # Initialise every load near its source, offset outward from the centre of mass.
+    n_fixed = length(positioned)
+    cm_x = n_fixed > 0 ? sum(p[1] for p in values(positioned)) / n_fixed : 0.0
+    cm_y = n_fixed > 0 ? sum(p[2] for p in values(positioned)) / n_fixed : 0.0
+
+    load_pos = Dict{String, Tuple{Float64, Float64}}()
+    for (src_lbl, load_lbl) in to_place
+        src = positioned[src_lbl]
+        dir_x = src[1] - cm_x
+        dir_y = src[2] - cm_y
+        d = sqrt(dir_x^2 + dir_y^2)
+        if d < 1e-10
+            dir_x, dir_y = 1.0, 0.0
+        else
+            dir_x /= d;  dir_y /= d
+        end
+        load_pos[load_lbl] = (src[1] + dir_x * typical * 0.3,
+                              src[2] + dir_y * typical * 0.3)
+    end
+
+    # All positioned fixed nodes — loads repel each other AND these.
+    fixed = positioned  # unchanged throughout
+
+    # Collect edge segments between fixed nodes (both endpoints positioned).
+    # These are the visible edges in the plot; loads should not land on them.
+    edge_segments = Tuple{Tuple{Float64,Float64}, Tuple{Float64,Float64}}[]
+    for (src_lbl, dst_lbl) in edge_labels(mg)
+        haskey(fixed, src_lbl) && haskey(fixed, dst_lbl) || continue
+        push!(edge_segments, (fixed[src_lbl], fixed[dst_lbl]))
+    end
+
+    # Converge all loads together in a single shared loop.
+    for iter in 1:max_iter
+        # Step size decreases over iterations; turbulence amplitude scales the same way.
+        α     = typical / (1.0 + iter * 0.02)
+        noise = α * 0.05  # turbulence amplitude: 5 % of current step size
+
+        new_pos = copy(load_pos)
+
+        for (src_lbl, load_lbl) in to_place
+            src     = positioned[src_lbl]
+            pos_x, pos_y = load_pos[load_lbl]
+            fx, fy  = 0.0, 0.0
+
+            # Attraction toward ZeroPipe source (linear spring, normalised).
+            fx += k_attraction * (src[1] - pos_x) / typical
+            fy += k_attraction * (src[2] - pos_y) / typical
+
+            # Repulsion from every fixed node (normalised, inverse-square).
+            for (_, other_pos) in fixed
+                dx = (pos_x - other_pos[1]) / typical
+                dy = (pos_y - other_pos[2]) / typical
+                dist2 = dx^2 + dy^2
+                dist2 < 1e-6 && continue
+                factor = k_repulsion / dist2
+                fx += factor * dx
+                fy += factor * dy
+            end
+
+            # Repulsion from the other loads being placed (using positions from
+            # the *previous* iteration so all loads move simultaneously).
+            for (other_lbl, other_pos) in load_pos
+                other_lbl == load_lbl && continue
+                dx = (pos_x - other_pos[1]) / typical
+                dy = (pos_y - other_pos[2]) / typical
+                dist2 = dx^2 + dy^2
+                dist2 < 1e-6 && continue
+                factor = k_repulsion / dist2
+                fx += factor * dx
+                fy += factor * dy
+            end
+
+            # Repulsion from the closest point on each fixed edge segment.
+            for (a, b) in edge_segments
+                cx, cy = _closest_point_on_segment(pos_x, pos_y, a[1], a[2], b[1], b[2])
+                dx = (pos_x - cx) / typical
+                dy = (pos_y - cy) / typical
+                dist2 = dx^2 + dy^2
+                dist2 < 1e-6 && continue
+                factor = k_repulsion / dist2
+                fx += factor * dx
+                fy += factor * dy
+            end
+
+            # Damped step + small random turbulence to escape local optima.
+            new_pos[load_lbl] = (pos_x + α * fx + noise * (rand() - 0.5),
+                                 pos_y + α * fy + noise * (rand() - 0.5))
+        end
+
+        load_pos = new_pos
+    end
+
+    return load_pos
+end
+
 """Visualize a `Network` using GraphMakie.
 
 Returns `(figure, axis, plot)` from `GraphMakie.graphplot`. If edge mass flows
 have been computed (e.g. via `steady_state_hydronynamics!`), the plot also
 shows flow-dependent edge styling.
+
+`ZeroPipe` edges are drawn with a dotted line style to distinguish them from
+physical `InsulatedPipe` edges.
+
+`LoadNode`s that are connected to the network via a `ZeroPipe` and have no
+explicit position are automatically placed near their `ZeroPipe` source using
+an attraction-repulsion algorithm. Use `k_attraction` and `k_repulsion` to tune
+the placement; see [`compute_zero_pipe_load_positions`](@ref) for details.
+The module-level constants [`DEFAULT_ZERO_PIPE_K_ATTRACTION`](@ref) and
+[`DEFAULT_ZERO_PIPE_K_REPULSION`](@ref) are used as defaults.
 """
-function visualize_graph!(nw::Network)
+function visualize_graph!(nw::Network;
+                          k_attraction::Float64 = DEFAULT_ZERO_PIPE_K_ATTRACTION,
+                          k_repulsion::Float64  = DEFAULT_ZERO_PIPE_K_REPULSION)
     mg = nw.mg
-    # visualize the MetaGraph using GraphMakie
-    # it changes the graph properties to store edge ids for interaction handling
+
+    # Compute positions for any ZeroPipe-connected loads that lack one.
+    auto_pos = compute_zero_pipe_load_positions(mg; k_attraction, k_repulsion)
 
     node_positions = positions(mg)
+    for (label, pos) in auto_pos
+        node_positions[code_for(mg, label)] = pos
+    end
 
     f, ax, p = graphplot(mg, layout = any(ismissing.(node_positions)) ? GraphMakie.Spring() : node_positions,
                         node_size = node_sizes(mg),
@@ -177,6 +367,7 @@ function visualize_graph!(nw::Network)
                         nlabels_fontsize = 12,
                         edge_color = edge_colors(mg),
                         edge_width = edge_widths(mg, 10.0, 2.0),
+                        edge_attr = (; linestyle = edge_linestyles(mg)),
                         elabels = edge_infos(mg),
                         elabels_fontsize = 12,
                         elabels_attr = (;markerspace = :pixel),
