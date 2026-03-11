@@ -174,9 +174,9 @@ distance(v1::NodeType, v2::NodeType) = sqrt((v1.common.position[1] - v2.common.p
 # vector operations for positions
 Base.:+(a::Tuple{Float64, Float64}, b::Tuple{Float64, Float64}) = (a[1] + b[1], a[2] + b[2])
 Base.:-(a::Tuple{Float64, Float64}, b::Tuple{Float64, Float64}) = (a[1] - b[1], a[2] - b[2])
-Base.:*(a::Float64, b::Tuple{Float64, Float64}) = (a * b[1], a * b[2])
-Base.:*(a::Tuple{Float64, Float64}, b::Float64) = (a[1] * b, a[2] * b)
-Base.:/(a::Tuple{Float64, Float64}, b::Float64) = (a[1] / b, a[2] / b)
+Base.:*(a::Real, b::Tuple{Float64, Float64}) = (a * b[1], a * b[2])
+Base.:*(a::Tuple{Float64, Float64}, b::Real) = (a[1] * b, a[2] * b)
+Base.:/(a::Tuple{Float64, Float64}, b::Real) = (a[1] / b, a[2] / b)
 
 # ------------------------------------------------ #
 # NODE TYPE SPECIFIC METHODS
