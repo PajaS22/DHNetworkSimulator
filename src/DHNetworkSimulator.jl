@@ -22,7 +22,7 @@ export InsulatedPipe, EmptyEdge, Plug, PipeParams
 export Network, NeighborDicts
 export EmptyNode, EmptyEdge, ZeroPipe
 export InsulatedPipe, JunctionNode, LoadNode, ProducerNode
-export LoadSpec, polynomial_load, DEFAULT_LOAD_PARAMS
+export LoadSpec, polynomial_load, hockey_load, DEFAULT_LOAD_PARAMS
 
 include("network_creation.jl")
 export fill_physical_params!

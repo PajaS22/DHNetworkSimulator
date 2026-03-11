@@ -93,6 +93,37 @@ See also: [`LoadSpec`](@ref).
 """
 polynomial_load(params::Vector{Float64}, T_a::Float64) = T_a < 30 ? sum(params[i] * T_a^(i-1) for i in eachindex(params)) : 0
 
+"""Built-in power demand function: two-part (hockey-stick) linear model.
+
+Models heating demand as a piecewise-linear function of ambient temperature:
+
+```
+P(T_a) = a + b·(T_b − T_a)   if T_a ≤ T_b   (heating regime)
+P(T_a) = a                    if T_a >  T_b   (base-load regime)
+```
+
+The result is clamped to zero from below so it never goes negative.
+
+# Parameters (`params = [a, b, T_b]`)
+- `a`  — base load [kW]: the constant demand present at all temperatures.
+- `b`  — heating slope [kW/°C]: additional load per degree below `T_b`.
+- `T_b` — balance-point temperature [°C]: above this the load is flat at `a`.
+
+# Example
+```julia
+# 50 kW base load, 5 kW per °C below 15 °C
+spec = LoadSpec(hockey_load, [50.0, 5.0, 15.0])
+```
+
+See also: [`LoadSpec`](@ref), [`polynomial_load`](@ref).
+"""
+function hockey_load(params::Vector{Float64}, T_a::Float64)
+    a, b, T_b = params[1], params[2], params[3]
+    @assert b >= 0 "Heating slope b must be non-negative"
+    @assert a >= 0 "Base load a must be non-negative"
+    return max(0.0, T_a <= T_b ? a + b * (T_b - T_a) : a)
+end
+
 """Load specification pairing a power demand function with its parameters.
 
 `fn(params, T_a)` must return power demand in **kW** for a given parameter vector and ambient
@@ -110,7 +141,15 @@ end
 - `fn::Function`: demand function with signature `fn(params::Vector{Float64}, T_a::Float64) -> Float64` (kW).
 - `params::Vector{Float64}`: current parameters passed to `fn`.
 
-See also: [`polynomial_load`](@ref), [`set_load_fn!`](@ref), [`set_load_params!`](@ref), [`validate_load_spec`](@ref).
+See also: [`polynomial_load`](@ref), [`hockey_load`](@ref), [`set_load_fn!`](@ref), [`set_load_params!`](@ref), [`validate_load_spec`](@ref).
+
+# Constructors
+- `LoadSpec()`: default `polynomial_load` with `DEFAULT_LOAD_PARAMS`.
+- `LoadSpec(params::Vector{<:Real})`: `polynomial_load` with custom parameter vector.
+- `LoadSpec(p₀, p₁, ...)`: `polynomial_load` with parameters given as individual numbers.
+- `LoadSpec(fn, params::Vector{<:Real})`: explicit function + parameter vector (converts element type).
+- `LoadSpec(fn, p₀, p₁, ...)`: explicit function with parameters as individual numbers.
+- `LoadSpec(hockey_load; a, b, T_b)`: keyword form for `hockey_load` — base load, slope, balance-point temperature.
 """
 mutable struct LoadSpec
     fn::Function
@@ -434,7 +473,12 @@ JunctionNode() = JunctionNode("junction")
 
 # LOAD NODE CONSTRUCTORS
 const DEFAULT_LOAD_PARAMS = [540.0, -36.0, 0.6]  # default quadratic polynomial coefficients (kW vs °C)
-LoadSpec() = LoadSpec(polynomial_load, copy(DEFAULT_LOAD_PARAMS)) # default LoadSpec with the polynomial_load function and default parameters
+LoadSpec() = LoadSpec(polynomial_load, copy(DEFAULT_LOAD_PARAMS))
+LoadSpec(params::Vector{<:Real})       = LoadSpec(polynomial_load, Vector{Float64}(params))
+LoadSpec(params::Real...)              = LoadSpec(polynomial_load, collect(Float64, params))
+LoadSpec(fn::Function, params::Vector{<:Real}) = LoadSpec(fn, Vector{Float64}(params))
+LoadSpec(fn::Function, params::Real...) = LoadSpec(fn, collect(Float64, params))
+LoadSpec(::typeof(hockey_load); a::Real, b::Real, T_b::Real) = LoadSpec(hockey_load, Float64(a), Float64(b), Float64(T_b))
 LoadNode(info::String; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info), load, missing)
 LoadNode(info::String, m_rel::Float64; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info), load, m_rel)
 LoadNode(info::String, position::Tuple{Float64, Float64}; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info, position), load, missing)
