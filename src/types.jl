@@ -484,6 +484,7 @@ LoadNode(info::String, m_rel::Float64; load::LoadSpec=LoadSpec()) = LoadNode(Nod
 LoadNode(info::String, position::Tuple{Float64, Float64}; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info, position), load, missing)
 LoadNode(info::String, position::Tuple{Float64, Float64}, load::LoadSpec) = LoadNode(NodeCommon(info, position), load, missing)
 LoadNode(info::String, position::Tuple{Float64, Float64}, m_rel::Float64; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info, position), load, m_rel)
+LoadNode(info::String, ::Missing; load::LoadSpec=LoadSpec()) = LoadNode(info; load=load)  # position missing, use keyword form
 LoadNode(position::Tuple{Float64, Float64}; load::LoadSpec=LoadSpec()) = LoadNode("load", position; load=load)
 LoadNode(; load::LoadSpec=LoadSpec()) = LoadNode("load"; load=load)
 
