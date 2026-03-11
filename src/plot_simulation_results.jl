@@ -7,9 +7,13 @@
 
 ```julia
 plot_simulation_results(sr::SimulationResults, physical_var::Symbol; kwargs...)
+plot_simulation_results(sr::SimulationResults, label::String, physical_var::Symbol; kwargs...)
 plot_simulation_results(sr::SimulationResults, labels::Vector{String}, physical_var::Symbol; kwargs...)
+plot_simulation_results(sr::SimulationResults, labels::Tuple{Vararg{String}}, physical_var::Symbol; kwargs...)
 plot_simulation_results(plot::Plots.Plot{Plots.GRBackend}, sr::SimulationResults, physical_var::Symbol; kwargs...)
+plot_simulation_results(plot::Plots.Plot{Plots.GRBackend}, sr::SimulationResults, label::String, physical_var::Symbol; kwargs...)
 plot_simulation_results(plot::Plots.Plot{Plots.GRBackend}, sr::SimulationResults, labels::Vector{String}, physical_var::Symbol; kwargs...)
+plot_simulation_results(plot::Plots.Plot{Plots.GRBackend}, sr::SimulationResults, labels::Tuple{Vararg{String}}, physical_var::Symbol; kwargs...)
 ```
 
 # Arguments
@@ -40,6 +44,8 @@ plot_simulation_results(plot::Plots.Plot{Plots.GRBackend}, sr::SimulationResults
 sr = run_simulation(network, t, policy)
 
 plot_simulation_results(sr, :T_load_in)
+plot_simulation_results(sr, "L1", :T_load_in)
+plot_simulation_results(sr, ("L1", "L2"), :T_load_in)
 plot_simulation_results(sr, ["L1", "L2"], :mass_flow_load)
 plot_simulation_results(sr, :power_producer)
 ```
@@ -107,6 +113,14 @@ end
 # Plot all load nodes
 plot_simulation_results(plot::Plots.Plot{Plots.GRBackend}, sr::SimulationResults, physical_var::Symbol; kwargs...) = plot_simulation_results(plot, sr, collect(sr[:load_labels]), physical_var; kwargs...)
 plot_simulation_results(sr::SimulationResults, physical_var::Symbol; kwargs...) = plot_simulation_results(sr, collect(sr[:load_labels]), physical_var; kwargs...)
+
+# Single string label
+plot_simulation_results(plot::Plots.Plot{Plots.GRBackend}, sr::SimulationResults, label::String, physical_var::Symbol; kwargs...) = plot_simulation_results(plot, sr, [label], physical_var; kwargs...)
+plot_simulation_results(sr::SimulationResults, label::String, physical_var::Symbol; kwargs...) = plot_simulation_results(sr, [label], physical_var; kwargs...)
+
+# Tuple of string labels
+plot_simulation_results(plot::Plots.Plot{Plots.GRBackend}, sr::SimulationResults, labels::Tuple{Vararg{String}}, physical_var::Symbol; kwargs...) = plot_simulation_results(plot, sr, collect(labels), physical_var; kwargs...)
+plot_simulation_results(sr::SimulationResults, labels::Tuple{Vararg{String}}, physical_var::Symbol; kwargs...) = plot_simulation_results(sr, collect(labels), physical_var; kwargs...)
 
 # initialize plot object
 function plot_simulation_results(sr::SimulationResults, labels::Vector{String}, physical_var::Symbol; kwargs...)
