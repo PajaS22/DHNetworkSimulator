@@ -54,7 +54,7 @@ end
 
 """Human-readable edge label used on hover in `visualize_graph!`."""
 function edge_info_hover(e::T) where {T<:EdgeType}
-    info = e.info * ", L=$(round(pipe_length(e), digits=1)) m, D=$(round(inner_diameter(e)/10, digits=1)) cm"  # label for edge types
+    info = e.info * ", L=$(round(pipe_length(e), digits=1)) m, D=$(round(inner_diameter(e)*100, digits=1)) cm"  # label for edge types
     if !ismissing(e.mass_flow)
         info *= ", v=$(round(water_velocity(e), digits=2)) m/s"
     end
@@ -182,7 +182,15 @@ function visualize_graph!(nw::Network)
                         elabels_attr = (;markerspace = :pixel),
                         arrow_size = 20
                         )
-    ax.aspect = DataAspect()
+    ax.xautolimitmargin = (0.15, 0.15)
+    ax.yautolimitmargin = (0.15, 0.15)
+    autolimits!(ax)
+    # Equalise x/y data ranges so initial view has 1:1 pixel scale
+    fl = ax.finallimits[]
+    cx = fl.origin[1] + fl.widths[1] / 2
+    cy = fl.origin[2] + fl.widths[2] / 2
+    r  = max(fl.widths[1], fl.widths[2]) / 2
+    limits!(ax, cx - r, cx + r, cy - r, cy + r)
     hidespines!(ax)
     hidedecorations!(ax)
 
