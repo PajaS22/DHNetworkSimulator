@@ -94,6 +94,7 @@ DHNetworkSimulator.print_edges
 DHNetworkSimulator.pipe_length
 Base.length(::DHNetworkSimulator.InsulatedPipe)
 DHNetworkSimulator.inner_diameter
+DHNetworkSimulator.volume
 DHNetworkSimulator.heat_resistance_forward
 DHNetworkSimulator.heat_resistance_backward
 DHNetworkSimulator.mass_flow

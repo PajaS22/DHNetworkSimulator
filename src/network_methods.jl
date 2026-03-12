@@ -350,7 +350,22 @@ Base.length(e::InsulatedPipe) = pipe_length(e)
 """Return pipe inner diameter in meters."""
 inner_diameter(e::InsulatedPipe) = e.physical_params.inner_diameter
 
-"""Compute the pipe volume in cubic meters."""
+"""
+    volume(e::InsulatedPipe) -> Float64
+    volume(e::ZeroPipe) -> Float64
+
+Return the internal water volume of pipe `e` in cubic meters.
+
+For an `InsulatedPipe` this is computed as `π/4 · L · d²`, where `L` is the pipe length
+and `d` is the inner diameter. For a `ZeroPipe` the volume is always `0.0`.
+
+# Examples
+```julia
+params = PipeParams(length=100.0, inner_diameter=0.05)
+pipe = InsulatedPipe(info="supply", physical_params=params)
+volume(pipe)   # ≈ 0.196 m³  (π/4 × 100 × 0.05²)
+```
+"""
 volume(e::InsulatedPipe) = π/4 * pipe_length(e) * inner_diameter(e)^2
 volume(e::ZeroPipe) = 0.0
 
