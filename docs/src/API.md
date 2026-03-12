@@ -127,7 +127,7 @@ DHNetworkSimulator.set_load_fn!
 DHNetworkSimulator.check_network!
 DHNetworkSimulator.set_relative_mass_flows!
 DHNetworkSimulator.set_absolute_mass_flows!
-DHNetworkSimulator.steady_state_hydronynamics!
+DHNetworkSimulator.steady_state_hydrodynamics!
 DHNetworkSimulator.fill_pipes_with_initial_temperature!
 DHNetworkSimulator.time_step_thermal_dynamics!
 DHNetworkSimulator.set_load_params!

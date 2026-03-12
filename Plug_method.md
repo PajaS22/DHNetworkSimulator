@@ -23,7 +23,7 @@ The approach is based on a **quasi-dynamic** assumption:
 
 As a result, each simulation time step does:
 
-1. compute steady-state mass flows (`steady_state_hydronynamics!`)
+1. compute steady-state mass flows (`steady_state_hydrodynamics!`)
 2. transport heat by moving plugs
    1. forward (supply) direction: from producer to loads
    2. heat extraction at loads: using a power-demand model (often based on outdoor-temperature compensation, sometimes called *equithermal regulation*)

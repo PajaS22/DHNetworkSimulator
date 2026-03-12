@@ -55,7 +55,7 @@ export DEFAULT_ZERO_PIPE_K_ATTRACTION, DEFAULT_ZERO_PIPE_K_REPULSION
 include("simulation.jl")
 export run_simulation
 export set_relative_mass_flows!, set_absolute_mass_flows!
-export steady_state_hydronynamics!
+export steady_state_hydrodynamics!
 export fill_pipes_with_initial_temperature!
 export time_step_thermal_dynamics!
 export set_load_params!

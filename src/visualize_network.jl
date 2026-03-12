@@ -416,7 +416,7 @@ end
 """Visualize a `Network` using GraphMakie.
 
 Returns `(figure, axis, plot)` from `GraphMakie.graphplot`. If edge mass flows
-have been computed (e.g. via `steady_state_hydronynamics!`), the plot also
+have been computed (e.g. via `steady_state_hydrodynamics!`), the plot also
 shows flow-dependent edge styling.
 
 `ZeroPipe` edges are drawn with a dotted line style to distinguish them from

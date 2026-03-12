@@ -44,7 +44,7 @@ end
 
 # Notes
 - Many fields use `missing` to represent “not initialized / not computed yet”.
-- During simulation, mass flows are usually filled by `steady_state_hydronynamics!`.
+- During simulation, mass flows are usually filled by `steady_state_hydrodynamics!`.
 
 # Constructors
 - `NodeCommon(info::String)`
@@ -292,7 +292,7 @@ end
 
 # Fields
 - `physical_params`: geometry and heat-loss parameters (see `PipeParams`).
-- `mass_flow`: mass flow in kg/s. `missing` until computed by `steady_state_hydronynamics!`.
+- `mass_flow`: mass flow in kg/s. `missing` until computed by `steady_state_hydrodynamics!`.
 - `m_rel`: relative flow coefficient used for splitting at junctions. `missing` until computed.
 - `plugs_f`: plug queue for the forward (supply) direction.
 - `plugs_b`: plug queue for the backward (return) direction.

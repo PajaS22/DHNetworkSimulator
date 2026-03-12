@@ -32,10 +32,10 @@
         @test power_consumption(load, nothing) == 0.0
     end
 
-    @testset "steady_state_hydronynamics!" begin
+    @testset "steady_state_hydrodynamics!" begin
         nw = branching_network()
         total_flow = 15.0
-        steady_state_hydronynamics!(nw, total_flow)
+        steady_state_hydrodynamics!(nw, total_flow)
 
         # producer → junction carries everything
         @test nw["producer", "junction"].mass_flow ≈ total_flow
@@ -78,7 +78,7 @@
 
     @testset "water_velocities" begin
         nw = branching_network()
-        steady_state_hydronynamics!(nw, 9.0)  # set mass flows first
+        steady_state_hydrodynamics!(nw, 9.0)  # set mass flows first
 
         velocities = water_velocities(nw)
         @test haskey(velocities, ("producer", "junction"))

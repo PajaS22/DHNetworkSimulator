@@ -41,7 +41,7 @@ display(f)
 fill_pipes_with_initial_temperature!(network, 90.0, 70.0)
 
 # compute steady state flow in all edges for given mass flow from producer
-steady_state_hydronynamics!(network, 10.0)
+steady_state_hydrodynamics!(network, 10.0)
 
 # ---------------------------------------------------------------------
 # TEST SIMULATION 1 - sinusoidal temperature

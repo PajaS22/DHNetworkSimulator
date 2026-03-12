@@ -36,7 +36,7 @@ julia --project scripts/basic_network.jl
 | `types.jl` | All data structures: `Network`, node types, edge types, `Plug`, `PipeParams` |
 | `network_creation.jl` | Incremental network construction helpers (`fill_physical_params!`, `identify_producer_and_loads!`, etc.) |
 | `network_methods.jl` | Label-based indexing, neighbor queries, topology modification, `check_network!` |
-| `simulation.jl` | Hydraulics (`steady_state_hydronynamics!`) and thermal simulation (`run_simulation`) |
+| `simulation.jl` | Hydraulics (`steady_state_hydrodynamics!`) and thermal simulation (`run_simulation`) |
 | `visualize_network.jl` | GraphMakie interactive visualization (`visualize_graph!`) |
 | `plot_simulation_results.jl` | Plots.jl time-series plots for `SimulationResults` |
 | `printing.jl` | `Base.show` overloads for network types |
@@ -70,7 +70,7 @@ julia --project scripts/basic_network.jl
 
 ### Simulation Flow (per time step)
 
-1. `steady_state_hydronynamics!` — recompute mass flows
+1. `steady_state_hydrodynamics!` — recompute mass flows
 2. `time_step_thermal_dynamics_forward!` — BFS from producer, advect supply plugs
 3. Load power consumption cools plugs at leaves
 4. `time_step_thermal_dynamics_backward!` — DFS from leaves, merge return flows at junctions

@@ -329,7 +329,7 @@ function run_simulation(
         results_mass_flow_producer[i] = input.mass_flow
 
         # hydraulics (always)
-        steady_state_hydronynamics!(network, input.mass_flow)
+        steady_state_hydrodynamics!(network, input.mass_flow)
 
         # return_plugs collects cooled load plugs to feed into the backward step
         return_plugs = Dict{String, Plug}()
@@ -442,7 +442,7 @@ end
 This performs a post-order traversal from leaves to root and sets, for each edge
 leading into a node, the sum of `m_rel` values required downstream.
 
-This is an internal step of [`steady_state_hydronynamics!`](@ref).
+This is an internal step of [`steady_state_hydrodynamics!`](@ref).
 """
 function set_relative_mass_flows!(nw::Network)
     # iterate over nodes from leaves to root and set on each edge relative mass flow coefficient m_rel
@@ -544,7 +544,7 @@ Internally it:
 1. computes relative flow splits (`set_relative_mass_flows!`),
 2. assigns absolute mass flows on edges and nodes (`set_absolute_mass_flows!`).
 """
-function steady_state_hydronynamics!(nw::Network, mass_flow_source::Float64)
+function steady_state_hydrodynamics!(nw::Network, mass_flow_source::Float64)
     set_relative_mass_flows!(nw)
     set_absolute_mass_flows!(nw, mass_flow_source)
 end
@@ -1029,7 +1029,7 @@ It performs:
 3. backward (return) advection back to the producer.
 
 # Arguments
-- `nw::Network`: the network (must have steady-state mass flows already computed, e.g. via [`steady_state_hydronynamics!`](@ref)).
+- `nw::Network`: the network (must have steady-state mass flows already computed, e.g. via [`steady_state_hydrodynamics!`](@ref)).
 - `Δt::Float64`: time step in seconds.
 - `input::ProducerOutput`: producer setpoints for this step.
 

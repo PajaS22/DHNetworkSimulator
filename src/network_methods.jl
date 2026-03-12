@@ -409,7 +409,7 @@ water_velocity(::ZeroPipe) = missing
 """Compute water velocities for all pipe edges in the network.
 
 Returns a `Dict{Tuple{String,String}, Float64}` keyed by `(src_label, dst_label)`, with velocity in m/s.
-Requires mass flows to be set first (e.g. via `steady_state_hydronynamics!`).
+Requires mass flows to be set first (e.g. via `steady_state_hydrodynamics!`).
 """
 function water_velocities(nw::Network)::Dict{Tuple{String, String}, Float64}
     velocities = Dict{Tuple{String, String}, Float64}()

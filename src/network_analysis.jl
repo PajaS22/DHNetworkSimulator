@@ -40,13 +40,13 @@ weights each segment by its own transit time `V/ṁ`.  In a chain or branching n
 the mass flow decreases towards the leaves (each tap removes flow), so the true delay
 to a distant load is significantly larger than `ΣV / ṁ_total`.
 
-Requires `steady_state_hydronynamics!` (or equivalent) to have been called so that
+Requires `steady_state_hydrodynamics!` (or equivalent) to have been called so that
 every `InsulatedPipe` has a non-missing, positive `mass_flow`.  `ZeroPipe` edges
 contribute zero delay (they are instantaneous).
 
 # Example
 ```julia
-steady_state_hydronynamics!(network, 100.0)
+steady_state_hydrodynamics!(network, 100.0)
 delays = producer_loads_delays(network)
 max_delay_min = maximum(values(delays)) / 60
 println("Longest transit delay: \$(round(max_delay_min, digits=1)) min")

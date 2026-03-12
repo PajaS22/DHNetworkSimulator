@@ -44,7 +44,7 @@ end
 display(current())
 
 # compute steady state flow in all edges
-steady_state_hydronynamics!(network, 100.0)
+steady_state_hydrodynamics!(network, 100.0)
 
 # ---------------------------------------------------------------------
 # TEST SIMULATION 1 - constant input
