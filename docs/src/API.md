@@ -75,6 +75,9 @@ DHNetworkSimulator.inneighbors
 
 ```@docs
 DHNetworkSimulator.visualize_graph!
+DHNetworkSimulator.compute_zero_pipe_load_positions
+DHNetworkSimulator.DEFAULT_ZERO_PIPE_K_ATTRACTION
+DHNetworkSimulator.DEFAULT_ZERO_PIPE_K_REPULSION
 DHNetworkSimulator.NodeHighlight
 DHNetworkSimulator.highlight_nodes!
 DHNetworkSimulator.reset_highlights!
@@ -112,6 +115,7 @@ DHNetworkSimulator.merge_water_plug_vectors!
 
 ```@docs
 DHNetworkSimulator.polynomial_load
+DHNetworkSimulator.hockey_load
 DHNetworkSimulator.validate_load_spec
 DHNetworkSimulator.set_load_fn!
 ```

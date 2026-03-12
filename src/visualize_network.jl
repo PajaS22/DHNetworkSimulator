@@ -2,12 +2,28 @@
 # visualization function for Network using GraphMakie
 # ---------------------------------------------------------------------
 
-# Global defaults for zero-pipe load auto-positioning (attraction-repulsion).
-# `k_attraction` is the spring constant pulling the load toward its ZeroPipe source.
-# `k_repulsion`  is the repulsion strength pushing it away from other positioned nodes.
-# Both are dimensionless — forces are normalised by the typical inter-node distance
-# computed at call time, so the defaults work regardless of coordinate units.
+"""
+    DEFAULT_ZERO_PIPE_K_ATTRACTION
+
+Default spring constant (dimensionless) for the attraction force pulling a
+`ZeroPipe`-connected `LoadNode` toward its source node during auto-positioning.
+Forces are normalised by the mean inter-node distance, so this value is
+independent of coordinate units.
+
+See also: [`DEFAULT_ZERO_PIPE_K_REPULSION`](@ref), [`compute_zero_pipe_load_positions`](@ref).
+"""
 const DEFAULT_ZERO_PIPE_K_ATTRACTION = 10.0
+
+"""
+    DEFAULT_ZERO_PIPE_K_REPULSION
+
+Default repulsion strength (dimensionless) pushing auto-positioned
+`ZeroPipe`-connected `LoadNode`s away from other already-positioned nodes.
+Forces are normalised by the mean inter-node distance, so this value is
+independent of coordinate units.
+
+See also: [`DEFAULT_ZERO_PIPE_K_ATTRACTION`](@ref), [`compute_zero_pipe_load_positions`](@ref).
+"""
 const DEFAULT_ZERO_PIPE_K_REPULSION  = 0.3
 
 node_size(::JunctionNode) = 0   # specific size for junction nodes
