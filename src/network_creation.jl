@@ -148,3 +148,26 @@ function fill_load_specs!(network::Network; pwr_coefs = (0.0, 0.0, 0.0), m_r = 1
         set_load_m_rel!(network, label, m_r)
     end
 end
+
+"""Set the same load demand function and parameters for every load node in the network.
+
+Use this overload when you need a function other than `polynomial_load`, e.g. `hockey_load`.
+
+```julia
+fill_load_specs!(network, hockey_load, [0.0, 0.05/15.0, 15.0]; m_r=1.0)
+```
+"""
+function fill_load_specs!(network::Network, fn::Function, params::Vector{Float64}; m_r::Real = 1.0)
+    for label in network.load_labels
+        set_load_fn!(network, label, fn, params)
+        set_load_m_rel!(network, label, Float64(m_r))
+    end
+end
+
+
+function fill_load_specs!(network::Network, load::LoadSpec; m_r::Real = 1.0)
+    for label in network.load_labels
+        set_load_fn!(network, label, load.fn, load.params)
+        set_load_m_rel!(network, label, Float64(m_r))
+    end
+end

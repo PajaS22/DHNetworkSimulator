@@ -134,7 +134,7 @@ function Base.getindex(sr::SimulationResults, s::Symbol)
         error("$(s): Invalid symbol for SimulationResults getindex. Valid symbols are: $(options)")
     end
     if(s==:load_labels)
-        return keys(sr.load_labels)
+        return collect(keys(sr.load_labels))
     elseif (s==:load_labels_dict)
         return sr.load_labels
     end

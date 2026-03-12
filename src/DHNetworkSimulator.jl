@@ -5,6 +5,7 @@ using ForwardMethods                            # for overloading functions from
 using GraphMakie, Colors, ColorSchemes
 using Plots
 using Dates
+using PrecompileTools
 
 if get(ENV, "GITHUB_ACTIONS", "false") != "true"
     using GLMakie # only load GLMakie when not running in GitHub Actions, to avoid issues with headless rendering
@@ -66,6 +67,58 @@ export SimulationResults
 export ProducerOutput
 
 include("network_analysis.jl")
-export producer_loads_volumes
+export producer_loads_volumes, producer_loads_delays
+
+# Precompile simulation and auto-positioning so the first user call pays no JIT cost.
+@compile_workload begin
+    # ── simulation ────────────────────────────────────────────────────────────
+    let
+        # 4-node network: producer → junction → 2 loads (mirrors the test fixture)
+        nw = Network()
+        nw["_wm_p"]  = ProducerNode((0.0, 0.0))
+        nw["_wm_j"]  = JunctionNode((50.0, 0.0))
+        nw["_wm_l1"] = LoadNode("_wm_l1", (100.0,  50.0), 1.0)
+        nw["_wm_l2"] = LoadNode("_wm_l2", (100.0, -50.0), 2.0)
+        nw["_wm_p",  "_wm_j"]  = InsulatedPipe(50.0)
+        nw["_wm_j",  "_wm_l1"] = InsulatedPipe(50.0)
+        nw["_wm_j",  "_wm_l2"] = InsulatedPipe(50.0)
+        run_simulation(nw, [0.0, 60.0, 120.0],
+            (t, Ta, Tb) -> ProducerOutput(mass_flow=5.0, temperature=80.0))
+    end
+    # ── ZeroPipe auto-positioning ─────────────────────────────────────────────
+    let
+        g = SimpleDiGraph(3)
+        add_edge!(g, 1, 2); add_edge!(g, 2, 3)
+        nw = Network(g)
+        name_nodes!(nw, ["_wm_pp", "_wm_pj", "_wm_pl"])
+        identify_producer_and_loads!(nw)
+        fill_node_positions!(nw, Dict("_wm_pp" => (0.0, 0.0), "_wm_pj" => (100.0, 0.0)))
+        nw["_wm_pp", "_wm_pj"] = InsulatedPipe(100.0)
+        nw["_wm_pj", "_wm_pl"] = ZeroPipe()
+        compute_zero_pipe_load_positions(nw.mg)
+    end
+end
+
+# Precompile visualization — only when GLMakie is loaded (not in headless CI).
+# Wrapped in try-catch so precompilation survives on headless machines that are
+# not GitHub Actions (e.g. GPU-less servers, WSL without a display).
+if get(ENV, "GITHUB_ACTIONS", "false") != "true"
+    @compile_workload begin
+        let
+            nw = Network()
+            nw["_wv_p"]  = ProducerNode((0.0, 0.0))
+            nw["_wv_j"]  = JunctionNode((50.0, 0.0))
+            nw["_wv_l1"] = LoadNode("_wv_l1", (100.0,  50.0), 1.0)
+            nw["_wv_l2"] = LoadNode("_wv_l2", (100.0, -50.0), 2.0)
+            nw["_wv_p",  "_wv_j"]  = InsulatedPipe(50.0)
+            nw["_wv_j",  "_wv_l1"] = InsulatedPipe(50.0)
+            nw["_wv_j",  "_wv_l2"] = InsulatedPipe(50.0)
+            try
+                visualize_graph!(nw)
+            catch
+            end
+        end
+    end
+end
 
 end # module DHNetworkSimulator

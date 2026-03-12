@@ -199,14 +199,15 @@ function _sample_typical_distance(pos_vals::Vector, n_samples::Int = 200)
 end
 
 """
-    compute_zero_pipe_load_positions(mg; k_attraction, k_repulsion, max_iter, knn_k) -> Dict{String, Tuple{Float64,Float64}}
+    compute_zero_pipe_load_positions(mg; k_attraction, k_repulsion, max_iter, knn_k, knn_seg_k) -> Dict{String, Tuple{Float64,Float64}}
 
 Find display positions for `LoadNode`s that have a missing position and are the destination
 of a `ZeroPipe` edge whose source is already positioned.
 
 The algorithm places each such load using an attraction-repulsion approach:
 - **Attraction** (spring): pulls the load toward its `ZeroPipe` source.
-- **Repulsion** (inverse-square): pushes the load away from the `knn_k` nearest positioned nodes.
+- **Repulsion** (inverse-square): pushes the load away from the `knn_k` nearest positioned nodes
+  and the `knn_seg_k` nearest fixed edge segments.
 
 Forces are non-dimensionalised by the mean inter-node distance so that `k_attraction`
 and `k_repulsion` behave consistently regardless of coordinate units.
@@ -214,8 +215,9 @@ and `k_repulsion` behave consistently regardless of coordinate units.
 # Keyword arguments
 - `k_attraction`: spring constant toward the ZeroPipe source (dimensionless, default [`DEFAULT_ZERO_PIPE_K_ATTRACTION`](@ref)).
 - `k_repulsion`: repulsion strength from other nodes (dimensionless, default [`DEFAULT_ZERO_PIPE_K_REPULSION`](@ref)).
-- `max_iter`: maximum number of gradient-descent steps (default 500); stops early when max displacement falls below `1e-4 * typical`.
+- `max_iter`: maximum number of gradient-descent steps (default 200); stops early when max displacement falls below `1e-3 * typical`.
 - `knn_k`: number of nearest fixed nodes used for repulsion per load (default 20; clamped to the number of fixed nodes).
+- `knn_seg_k`: number of nearest fixed edge segments used for repulsion per load (default 20; clamped to the number of segments).
 
 Returns a `Dict` mapping load label → computed `(x, y)` position. Only loads that
 actually need placement are included; nodes that already have a position are not modified.
@@ -223,8 +225,9 @@ actually need placement are included; nodes that already have a position are not
 function compute_zero_pipe_load_positions(mg::MetaGraph;
         k_attraction::Float64 = DEFAULT_ZERO_PIPE_K_ATTRACTION,
         k_repulsion::Float64  = DEFAULT_ZERO_PIPE_K_REPULSION,
-        max_iter::Int = 500,
-        knn_k::Int    = 20)
+        max_iter::Int  = 200,
+        knn_k::Int     = 20,
+        knn_seg_k::Int = 20)
 
     # Build a working dict of all currently positioned nodes.
     positioned = Dict{String, Tuple{Float64, Float64}}()
@@ -314,60 +317,84 @@ function compute_zero_pipe_load_positions(mg::MetaGraph;
         len2_seg[j] = D_seg[j,1]^2 + D_seg[j,2]^2
     end
 
+    # KNN for segments: precompute the K_seg nearest segments (by midpoint) for each load.
+    # Avoids iterating all n_segs segments per load per iteration → O(K_seg) instead of O(n_segs).
+    K_seg       = min(knn_seg_k, n_segs)
+    knn_seg_idx = Vector{Vector{Int}}(undef, n_loads)
+    if n_segs > 0
+        seg_mid_x  = [SegA[j,1] + D_seg[j,1] * 0.5 for j in 1:n_segs]
+        seg_mid_y  = [SegA[j,2] + D_seg[j,2] * 0.5 for j in 1:n_segs]
+        seg_d2_buf = Vector{Float64}(undef, n_segs)
+        for i in 1:n_loads
+            @inbounds for j in 1:n_segs
+                seg_d2_buf[j] = (Q[i,1] - seg_mid_x[j])^2 + (Q[i,2] - seg_mid_y[j])^2
+            end
+            knn_seg_idx[i] = K_seg > 0 ? partialsortperm(seg_d2_buf, 1:K_seg) : Int[]
+        end
+    else
+        for i in 1:n_loads
+            knn_seg_idx[i] = Int[]
+        end
+    end
+
     # Main optimisation loop.
+    # Each load's force update is independent → parallel over loads with Threads.@threads.
+    # All threads write to distinct rows of Q_new; reads from Q (previous iteration) are safe.
     for iter in 1:max_iter
         α     = typical / (1.0 + iter * 0.02)
         noise = α * 0.05
 
-        @inbounds for i in 1:n_loads
-            qx, qy = Q[i, 1], Q[i, 2]
-            fx, fy = 0.0, 0.0
+        Threads.@threads for i in 1:n_loads
+            @inbounds begin
+                qx, qy = Q[i, 1], Q[i, 2]
+                fx, fy = 0.0, 0.0
 
-            # Attraction toward ZeroPipe source (linear spring, normalised).
-            sx = P[src_idx_vec[i], 1];  sy = P[src_idx_vec[i], 2]
-            fx += k_attraction * (sx - qx) / typical
-            fy += k_attraction * (sy - qy) / typical
+                # Attraction toward ZeroPipe source (linear spring, normalised).
+                sx = P[src_idx_vec[i], 1];  sy = P[src_idx_vec[i], 2]
+                fx += k_attraction * (sx - qx) / typical
+                fy += k_attraction * (sy - qy) / typical
 
-            # Repulsion from the K nearest fixed nodes.
-            for j in knn_idx[i]
-                dx = (qx - P[j, 1]) / typical
-                dy = (qy - P[j, 2]) / typical
-                d2 = dx*dx + dy*dy
-                d2 < 1e-6 && continue
-                f   = k_repulsion / d2
-                fx += f * dx;  fy += f * dy
+                # Repulsion from the K nearest fixed nodes.
+                for j in knn_idx[i]
+                    dx = (qx - P[j, 1]) / typical
+                    dy = (qy - P[j, 2]) / typical
+                    d2 = dx*dx + dy*dy
+                    d2 < 1e-6 && continue
+                    f   = k_repulsion / d2
+                    fx += f * dx;  fy += f * dy
+                end
+
+                # Repulsion from other loads (previous-iteration positions → simultaneous update).
+                for k in 1:n_loads
+                    k == i && continue
+                    dx = (qx - Q[k, 1]) / typical
+                    dy = (qy - Q[k, 2]) / typical
+                    d2 = dx*dx + dy*dy
+                    d2 < 1e-6 && continue
+                    f   = k_repulsion / d2
+                    fx += f * dx;  fy += f * dy
+                end
+
+                # Repulsion from the closest point on the K_seg nearest fixed edge segments.
+                for j in knn_seg_idx[i]
+                    len2_seg[j] < 1e-10 && continue
+                    t  = clamp(((qx - SegA[j,1]) * D_seg[j,1] + (qy - SegA[j,2]) * D_seg[j,2]) / len2_seg[j], 0.0, 1.0)
+                    cx = SegA[j,1] + t * D_seg[j,1]
+                    cy = SegA[j,2] + t * D_seg[j,2]
+                    dx = (qx - cx) / typical
+                    dy = (qy - cy) / typical
+                    d2 = dx*dx + dy*dy
+                    d2 < 1e-6 && continue
+                    f   = k_repulsion / d2
+                    fx += f * dx;  fy += f * dy
+                end
+
+                Q_new[i, 1] = qx + α * fx + noise * (rand() - 0.5)
+                Q_new[i, 2] = qy + α * fy + noise * (rand() - 0.5)
             end
-
-            # Repulsion from other loads (previous-iteration positions → simultaneous update).
-            for k in 1:n_loads
-                k == i && continue
-                dx = (qx - Q[k, 1]) / typical
-                dy = (qy - Q[k, 2]) / typical
-                d2 = dx*dx + dy*dy
-                d2 < 1e-6 && continue
-                f   = k_repulsion / d2
-                fx += f * dx;  fy += f * dy
-            end
-
-            # Repulsion from the closest point on each fixed edge segment.
-            for j in 1:n_segs
-                len2_seg[j] < 1e-10 && continue
-                t  = clamp(((qx - SegA[j,1]) * D_seg[j,1] + (qy - SegA[j,2]) * D_seg[j,2]) / len2_seg[j], 0.0, 1.0)
-                cx = SegA[j,1] + t * D_seg[j,1]
-                cy = SegA[j,2] + t * D_seg[j,2]
-                dx = (qx - cx) / typical
-                dy = (qy - cy) / typical
-                d2 = dx*dx + dy*dy
-                d2 < 1e-6 && continue
-                f   = k_repulsion / d2
-                fx += f * dx;  fy += f * dy
-            end
-
-            Q_new[i, 1] = qx + α * fx + noise * (rand() - 0.5)
-            Q_new[i, 2] = qy + α * fy + noise * (rand() - 0.5)
         end
 
-        # Early stopping: terminate when no load moves more than ε.
+        # Early stopping: terminate when no load moves more than ε (sequential reduction).
         max_disp = 0.0
         @inbounds for i in 1:n_loads
             d = sqrt((Q_new[i,1] - Q[i,1])^2 + (Q_new[i,2] - Q[i,2])^2)
@@ -376,7 +403,7 @@ function compute_zero_pipe_load_positions(mg::MetaGraph;
 
         Q, Q_new = Q_new, Q   # swap buffers — zero allocations per iteration
 
-        max_disp < 1e-4 * typical && break
+        max_disp < 1e-3 * typical && break
     end
 
     result = Dict{String, Tuple{Float64, Float64}}()

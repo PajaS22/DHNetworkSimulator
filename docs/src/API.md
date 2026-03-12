@@ -146,6 +146,7 @@ DHNetworkSimulator.plot_simulation_results
 
 ```@docs
 DHNetworkSimulator.producer_loads_volumes
+DHNetworkSimulator.producer_loads_delays
 ```
 
 ## External helpers

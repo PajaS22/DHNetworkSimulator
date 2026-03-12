@@ -2,7 +2,7 @@
 
 julia_version = "1.12.1"
 manifest_format = "2.0"
-project_hash = "23531d86c4ab23beaaf6b3cb6dfb095ce7af94c0"
+project_hash = "b7438ae6f223b8c8a6c88975ae549d6ca1656a70"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -316,7 +316,7 @@ uuid = "a8cc5b0e-0ffa-5ad4-8c14-923d3ee1735f"
 version = "4.1.1"
 
 [[deps.DHNetworkSimulator]]
-deps = ["ColorSchemes", "Colors", "DataStructures", "Dates", "ForwardMethods", "GLMakie", "GraphMakie", "Graphs", "MetaGraphsNext", "Plots", "StatsBase", "TSFrames", "Test"]
+deps = ["ColorSchemes", "Colors", "DataStructures", "Dates", "ForwardMethods", "GLMakie", "GraphMakie", "Graphs", "MetaGraphsNext", "Plots", "PrecompileTools", "StatsBase", "TSFrames", "Test"]
 path = "."
 uuid = "2eb6275f-2a99-494f-9a8b-24b61cb8f4b7"
 version = "0.1.0"
