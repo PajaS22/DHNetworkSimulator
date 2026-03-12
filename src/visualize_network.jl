@@ -183,24 +183,30 @@ function reset_highlights!(p, nw::Network)
     return nothing
 end
 
-# Returns the point on segment AB closest to point P.
-function _closest_point_on_segment(px, py, ax, ay, bx, by)
-    dx, dy = bx - ax, by - ay
-    len2   = dx^2 + dy^2
-    len2 < 1e-10 && return (ax, ay)  # degenerate segment → return A
-    t = clamp(((px - ax) * dx + (py - ay) * dy) / len2, 0.0, 1.0)
-    return (ax + t * dx, ay + t * dy)
+# Sample-based estimate of the typical inter-node distance (O(1) instead of O(n²)).
+function _sample_typical_distance(pos_vals::Vector, n_samples::Int = 200)
+    n = length(pos_vals)
+    n < 2 && return 1.0
+    total = 0.0
+    count = 0
+    for _ in 1:n_samples
+        i, j = rand(1:n), rand(1:n)
+        i == j && continue
+        total += sqrt((pos_vals[i][1] - pos_vals[j][1])^2 + (pos_vals[i][2] - pos_vals[j][2])^2)
+        count += 1
+    end
+    count == 0 ? 1.0 : total / count
 end
 
 """
-    compute_zero_pipe_load_positions(mg; k_attraction, k_repulsion, max_iter) -> Dict{String, Tuple{Float64,Float64}}
+    compute_zero_pipe_load_positions(mg; k_attraction, k_repulsion, max_iter, knn_k) -> Dict{String, Tuple{Float64,Float64}}
 
 Find display positions for `LoadNode`s that have a missing position and are the destination
 of a `ZeroPipe` edge whose source is already positioned.
 
 The algorithm places each such load using an attraction-repulsion approach:
 - **Attraction** (spring): pulls the load toward its `ZeroPipe` source.
-- **Repulsion** (inverse-square): pushes the load away from every other positioned node.
+- **Repulsion** (inverse-square): pushes the load away from the `knn_k` nearest positioned nodes.
 
 Forces are non-dimensionalised by the mean inter-node distance so that `k_attraction`
 and `k_repulsion` behave consistently regardless of coordinate units.
@@ -208,7 +214,8 @@ and `k_repulsion` behave consistently regardless of coordinate units.
 # Keyword arguments
 - `k_attraction`: spring constant toward the ZeroPipe source (dimensionless, default [`DEFAULT_ZERO_PIPE_K_ATTRACTION`](@ref)).
 - `k_repulsion`: repulsion strength from other nodes (dimensionless, default [`DEFAULT_ZERO_PIPE_K_REPULSION`](@ref)).
-- `max_iter`: maximum number of gradient-descent steps per load (default 500).
+- `max_iter`: maximum number of gradient-descent steps (default 500); stops early when max displacement falls below `1e-4 * typical`.
+- `knn_k`: number of nearest fixed nodes used for repulsion per load (default 20; clamped to the number of fixed nodes).
 
 Returns a `Dict` mapping load label → computed `(x, y)` position. Only loads that
 actually need placement are included; nodes that already have a position are not modified.
@@ -216,15 +223,14 @@ actually need placement are included; nodes that already have a position are not
 function compute_zero_pipe_load_positions(mg::MetaGraph;
         k_attraction::Float64 = DEFAULT_ZERO_PIPE_K_ATTRACTION,
         k_repulsion::Float64  = DEFAULT_ZERO_PIPE_K_REPULSION,
-        max_iter::Int = 500)
+        max_iter::Int = 500,
+        knn_k::Int    = 20)
 
     # Build a working dict of all currently positioned nodes.
     positioned = Dict{String, Tuple{Float64, Float64}}()
     for label in labels(mg)
         p = position(mg[label])
-        if !ismissing(p)
-            positioned[label] = p
-        end
+        ismissing(p) || (positioned[label] = p)
     end
 
     # Collect loads to place: dst of a ZeroPipe whose src is already positioned.
@@ -238,111 +244,146 @@ function compute_zero_pipe_load_positions(mg::MetaGraph;
 
     isempty(to_place) && return Dict{String, Tuple{Float64, Float64}}()
 
-    # Compute a typical inter-node distance for non-dimensionalisation.
+    # Typical distance via random sampling (O(1) instead of O(n²)).
     pos_vals = collect(values(positioned))
-    typical = 1.0
-    if length(pos_vals) >= 2
-        n = length(pos_vals)
-        total = 0.0
-        for i in 1:n, j in i+1:n
-            total += sqrt((pos_vals[i][1] - pos_vals[j][1])^2 + (pos_vals[i][2] - pos_vals[j][2])^2)
-        end
-        typical = total / (n * (n - 1) / 2)
+    typical  = _sample_typical_distance(pos_vals)
+
+    # Pack fixed positions into a matrix (n_fixed × 2) for fast indexed access.
+    fixed_labels_vec   = collect(keys(positioned))
+    n_fixed            = length(fixed_labels_vec)
+    P                  = Matrix{Float64}(undef, n_fixed, 2)
+    for (i, lbl) in enumerate(fixed_labels_vec)
+        P[i, 1], P[i, 2] = positioned[lbl]
     end
+    fixed_label_to_idx = Dict(lbl => i for (i, lbl) in enumerate(fixed_labels_vec))
 
-    # Initialise every load near its source, offset outward from the centre of mass.
-    n_fixed = length(positioned)
-    cm_x = n_fixed > 0 ? sum(p[1] for p in values(positioned)) / n_fixed : 0.0
-    cm_y = n_fixed > 0 ? sum(p[2] for p in values(positioned)) / n_fixed : 0.0
+    # Centre of mass for initial load placement.
+    cm_x = sum(@view P[:, 1]) / n_fixed
+    cm_y = sum(@view P[:, 2]) / n_fixed
 
-    load_pos = Dict{String, Tuple{Float64, Float64}}()
-    for (src_lbl, load_lbl) in to_place
-        src = positioned[src_lbl]
-        dir_x = src[1] - cm_x
-        dir_y = src[2] - cm_y
+    # Initialise load positions near their ZeroPipe source, offset outward.
+    n_loads     = length(to_place)
+    load_labels = [dst for (_, dst) in to_place]
+    src_idx_vec = [fixed_label_to_idx[src] for (src, _) in to_place]
+
+    Q     = Matrix{Float64}(undef, n_loads, 2)  # current positions
+    Q_new = Matrix{Float64}(undef, n_loads, 2)  # next positions (pre-allocated, no alloc per iter)
+    for (i, (src_lbl, _)) in enumerate(to_place)
+        sx, sy = positioned[src_lbl]
+        dir_x  = sx - cm_x
+        dir_y  = sy - cm_y
         d = sqrt(dir_x^2 + dir_y^2)
         if d < 1e-10
             dir_x, dir_y = 1.0, 0.0
         else
-            dir_x /= d;  dir_y /= d
+            dir_x /= d; dir_y /= d
         end
-        load_pos[load_lbl] = (src[1] + dir_x * typical * 0.3,
-                              src[2] + dir_y * typical * 0.3)
+        Q[i, 1] = sx + dir_x * typical * 0.3
+        Q[i, 2] = sy + dir_y * typical * 0.3
     end
 
-    # All positioned fixed nodes — loads repel each other AND these.
-    fixed = positioned  # unchanged throughout
+    # KNN: for each load find the K nearest fixed nodes once at initialisation.
+    # partialsortperm is O(n) and avoids a full sort.
+    K       = min(knn_k, n_fixed)
+    knn_idx = Vector{Vector{Int}}(undef, n_loads)
+    d2_buf  = Vector{Float64}(undef, n_fixed)   # scratch buffer reused below
+    for i in 1:n_loads
+        @inbounds for j in 1:n_fixed
+            d2_buf[j] = (Q[i,1] - P[j,1])^2 + (Q[i,2] - P[j,2])^2
+        end
+        knn_idx[i] = partialsortperm(d2_buf, 1:K)
+    end
 
-    # Collect edge segments between fixed nodes (both endpoints positioned).
-    # These are the visible edges in the plot; loads should not land on them.
-    edge_segments = Tuple{Tuple{Float64,Float64}, Tuple{Float64,Float64}}[]
+    # Precompute edge-segment geometry (fixed throughout):
+    # D_seg[j,:] = B[j,:] - A[j,:],  len2_seg[j] = |D_seg[j,:]|²
+    segs_src = Tuple{Float64,Float64}[]
+    segs_dst = Tuple{Float64,Float64}[]
     for (src_lbl, dst_lbl) in edge_labels(mg)
-        haskey(fixed, src_lbl) && haskey(fixed, dst_lbl) || continue
-        push!(edge_segments, (fixed[src_lbl], fixed[dst_lbl]))
+        haskey(positioned, src_lbl) && haskey(positioned, dst_lbl) || continue
+        push!(segs_src, positioned[src_lbl])
+        push!(segs_dst, positioned[dst_lbl])
+    end
+    n_segs   = length(segs_src)
+    SegA     = Matrix{Float64}(undef, n_segs, 2)
+    D_seg    = Matrix{Float64}(undef, n_segs, 2)
+    len2_seg = Vector{Float64}(undef, n_segs)
+    for j in 1:n_segs
+        SegA[j, 1]  = segs_src[j][1];  SegA[j, 2]  = segs_src[j][2]
+        D_seg[j, 1] = segs_dst[j][1] - segs_src[j][1]
+        D_seg[j, 2] = segs_dst[j][2] - segs_src[j][2]
+        len2_seg[j] = D_seg[j,1]^2 + D_seg[j,2]^2
     end
 
-    # Converge all loads together in a single shared loop.
+    # Main optimisation loop.
     for iter in 1:max_iter
-        # Step size decreases over iterations; turbulence amplitude scales the same way.
         α     = typical / (1.0 + iter * 0.02)
-        noise = α * 0.05  # turbulence amplitude: 5 % of current step size
+        noise = α * 0.05
 
-        new_pos = copy(load_pos)
-
-        for (src_lbl, load_lbl) in to_place
-            src     = positioned[src_lbl]
-            pos_x, pos_y = load_pos[load_lbl]
-            fx, fy  = 0.0, 0.0
+        @inbounds for i in 1:n_loads
+            qx, qy = Q[i, 1], Q[i, 2]
+            fx, fy = 0.0, 0.0
 
             # Attraction toward ZeroPipe source (linear spring, normalised).
-            fx += k_attraction * (src[1] - pos_x) / typical
-            fy += k_attraction * (src[2] - pos_y) / typical
+            sx = P[src_idx_vec[i], 1];  sy = P[src_idx_vec[i], 2]
+            fx += k_attraction * (sx - qx) / typical
+            fy += k_attraction * (sy - qy) / typical
 
-            # Repulsion from every fixed node (normalised, inverse-square).
-            for (_, other_pos) in fixed
-                dx = (pos_x - other_pos[1]) / typical
-                dy = (pos_y - other_pos[2]) / typical
-                dist2 = dx^2 + dy^2
-                dist2 < 1e-6 && continue
-                factor = k_repulsion / dist2
-                fx += factor * dx
-                fy += factor * dy
+            # Repulsion from the K nearest fixed nodes.
+            for j in knn_idx[i]
+                dx = (qx - P[j, 1]) / typical
+                dy = (qy - P[j, 2]) / typical
+                d2 = dx*dx + dy*dy
+                d2 < 1e-6 && continue
+                f   = k_repulsion / d2
+                fx += f * dx;  fy += f * dy
             end
 
-            # Repulsion from the other loads being placed (using positions from
-            # the *previous* iteration so all loads move simultaneously).
-            for (other_lbl, other_pos) in load_pos
-                other_lbl == load_lbl && continue
-                dx = (pos_x - other_pos[1]) / typical
-                dy = (pos_y - other_pos[2]) / typical
-                dist2 = dx^2 + dy^2
-                dist2 < 1e-6 && continue
-                factor = k_repulsion / dist2
-                fx += factor * dx
-                fy += factor * dy
+            # Repulsion from other loads (previous-iteration positions → simultaneous update).
+            for k in 1:n_loads
+                k == i && continue
+                dx = (qx - Q[k, 1]) / typical
+                dy = (qy - Q[k, 2]) / typical
+                d2 = dx*dx + dy*dy
+                d2 < 1e-6 && continue
+                f   = k_repulsion / d2
+                fx += f * dx;  fy += f * dy
             end
 
             # Repulsion from the closest point on each fixed edge segment.
-            for (a, b) in edge_segments
-                cx, cy = _closest_point_on_segment(pos_x, pos_y, a[1], a[2], b[1], b[2])
-                dx = (pos_x - cx) / typical
-                dy = (pos_y - cy) / typical
-                dist2 = dx^2 + dy^2
-                dist2 < 1e-6 && continue
-                factor = k_repulsion / dist2
-                fx += factor * dx
-                fy += factor * dy
+            for j in 1:n_segs
+                len2_seg[j] < 1e-10 && continue
+                t  = clamp(((qx - SegA[j,1]) * D_seg[j,1] + (qy - SegA[j,2]) * D_seg[j,2]) / len2_seg[j], 0.0, 1.0)
+                cx = SegA[j,1] + t * D_seg[j,1]
+                cy = SegA[j,2] + t * D_seg[j,2]
+                dx = (qx - cx) / typical
+                dy = (qy - cy) / typical
+                d2 = dx*dx + dy*dy
+                d2 < 1e-6 && continue
+                f   = k_repulsion / d2
+                fx += f * dx;  fy += f * dy
             end
 
-            # Damped step + small random turbulence to escape local optima.
-            new_pos[load_lbl] = (pos_x + α * fx + noise * (rand() - 0.5),
-                                 pos_y + α * fy + noise * (rand() - 0.5))
+            Q_new[i, 1] = qx + α * fx + noise * (rand() - 0.5)
+            Q_new[i, 2] = qy + α * fy + noise * (rand() - 0.5)
         end
 
-        load_pos = new_pos
+        # Early stopping: terminate when no load moves more than ε.
+        max_disp = 0.0
+        @inbounds for i in 1:n_loads
+            d = sqrt((Q_new[i,1] - Q[i,1])^2 + (Q_new[i,2] - Q[i,2])^2)
+            d > max_disp && (max_disp = d)
+        end
+
+        Q, Q_new = Q_new, Q   # swap buffers — zero allocations per iteration
+
+        max_disp < 1e-4 * typical && break
     end
 
-    return load_pos
+    result = Dict{String, Tuple{Float64, Float64}}()
+    for (i, lbl) in enumerate(load_labels)
+        result[lbl] = (Q[i, 1], Q[i, 2])
+    end
+    return result
 end
 
 """Visualize a `Network` using GraphMakie.
