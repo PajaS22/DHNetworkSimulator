@@ -141,5 +141,11 @@ DHNetworkSimulator.run_simulation
 DHNetworkSimulator.plot_simulation_results
 ```
 
+## Network analysis
+
+```@docs
+DHNetworkSimulator.producer_loads_volumes
+```
+
 ## External helpers
 This package relies on MetaGraphsNext.jl internally. If you need to convert a Graphs.jl vertex index back to the stored string label, use `MetaGraphsNext.label_for(nw.mg, idx)`.

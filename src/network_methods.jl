@@ -350,6 +350,10 @@ Base.length(e::InsulatedPipe) = pipe_length(e)
 """Return pipe inner diameter in meters."""
 inner_diameter(e::InsulatedPipe) = e.physical_params.inner_diameter
 
+"""Compute the pipe volume in cubic meters."""
+volume(e::InsulatedPipe) = π/4 * pipe_length(e) * inner_diameter(e)^2
+volume(e::ZeroPipe) = 0.0
+
 """Return thermal resistance (supply direction) in m·K/W."""
 heat_resistance_forward(e::InsulatedPipe) = e.physical_params.heat_resistance_forward
 
