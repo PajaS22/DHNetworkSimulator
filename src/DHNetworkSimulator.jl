@@ -18,11 +18,11 @@ const MINIMAL_RETURN_TEMPERATURE = 25.0 # °C, minimal return temperature for th
 include("types.jl")
 
 export NodeType, EdgeType, NodeCommon
-export JunctionNode, LoadNode, ProducerNode, EmptyNode
+export JunctionNode, SumpNode, LoadNode, ProducerNode, EmptyNode
 export InsulatedPipe, EmptyEdge, Plug, PipeParams
 export Network, NeighborDicts
 export EmptyNode, EmptyEdge, ZeroPipe
-export InsulatedPipe, JunctionNode, LoadNode, ProducerNode
+export InsulatedPipe, JunctionNode, SumpNode, LoadNode, ProducerNode
 export LoadSpec, polynomial_load, hockey_load, DEFAULT_LOAD_PARAMS
 
 include("network_creation.jl")

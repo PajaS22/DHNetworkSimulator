@@ -20,6 +20,7 @@ DHNetworkSimulator.NodeCommon
 
 DHNetworkSimulator.ProducerNode
 DHNetworkSimulator.JunctionNode
+DHNetworkSimulator.SumpNode
 DHNetworkSimulator.LoadNode
 DHNetworkSimulator.EmptyNode
 

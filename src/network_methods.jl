@@ -17,6 +17,7 @@ Base.getindex(nw::Network, i::Vector{Int}) = [nw.mg[MetaGraphsNext.label_for(nw.
 
 Base.setindex!(nw::Network, v::ProducerNode, label::String) = add_producer_node!(nw, v, label)
 Base.setindex!(nw::Network, v::LoadNode, label::String) = add_load_node!(nw, v, label)
+Base.setindex!(nw::Network, v::SumpNode, label::String) = add_sump_node!(nw, v, label)
 Base.setindex!(nw::Network, v::NT, label::String) where {NT<:NodeType} = add_node!(nw, v, label)
 Base.setindex!(nw::Network, v::Vector{NT}, labels::Vector{String}) where {NT<:NodeType} = (for (j, lbl) in enumerate(labels); nw.mg[lbl] = v[j]; end)
 
@@ -95,6 +96,15 @@ function check_network!(network::Network)
                 error("Load nodes must be leaves (outdegree must be 0)! Node with label $load_label has outdegree $(outdegree(network, load_label))")
             end
         end
+        # check that sump nodes are internal (not leaves, not root)
+        for sump_label in network.sump_labels
+            if outdegree(network, sump_label) == 0
+                error("Sump nodes must not be leaves (outdegree must be > 0)! Node $sump_label has outdegree 0.")
+            end
+            if indegree(network, sump_label) == 0
+                error("Sump nodes must have exactly one incoming edge (indegree must be > 0)! Node $sump_label has indegree 0.")
+            end
+        end
     end
 end
 
@@ -112,6 +122,9 @@ function rem_node!(nw::Network, label::String)
     elseif v isa LoadNode
         # removing load node
         filter!(x -> x != label, nw.load_labels)
+    elseif v isa SumpNode
+        # removing sump node
+        filter!(x -> x != label, nw.sump_labels)
     end
     Graphs.rem_vertex!(nw.mg, index_for(nw, label))
     nw.neighbor_dicts.need_rebuild = true
@@ -195,6 +208,10 @@ function add_producer_node!(nw::Network, v::ProducerNode, label::String)
     add_node!(nw, v, label)
     nw.producer_label = label
 end
+function add_sump_node!(nw::Network, v::SumpNode, label::String)
+    add_node!(nw, v, label)
+    push!(nw.sump_labels, label)
+end
 
 # default method for adding a node in network
 function add_node!(nw::Network, v::NT, label::String) where {NT<:NodeType}
@@ -205,6 +222,9 @@ function add_node!(nw::Network, v::NT, label::String) where {NT<:NodeType}
         elseif nw[label] isa ProducerNode
             # removing producer node
             nw.producer_label = nothing
+        elseif nw[label] isa SumpNode
+            # removing sump node from sump_labels
+            filter!(x -> x != label, nw.sump_labels)
         end
     end
     nw.mg[label] = v

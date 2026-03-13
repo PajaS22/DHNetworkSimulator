@@ -28,7 +28,7 @@ function Network(graph::SimpleDiGraph)
         mg[default_labels[src(e)], default_labels[dst(e)]] = EmptyEdge()
     end
 
-    return Network(mg, nothing, Set{String}(), NeighborDicts())
+    return Network(mg, nothing, Set{String}(), Set{String}(), NeighborDicts())
 end
 
 """Replace `EmptyEdge` placeholders with real `InsulatedPipe` objects.

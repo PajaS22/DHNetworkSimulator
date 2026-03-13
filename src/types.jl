@@ -9,6 +9,7 @@ Concrete node types describe the *role* of a vertex in the directed network:
 
 - `ProducerNode`: heat source (root)
 - `JunctionNode`: branching/merging point
+- `SumpNode`: measurement point (behaves like a junction, but recorded in `SimulationResults`)
 - `LoadNode`: heat consumer (typically a leaf)
 - `EmptyNode`: placeholder used during construction
 
@@ -75,6 +76,34 @@ end
 - `JunctionNode()`
 """
 struct JunctionNode <: NodeType
+    common::NodeCommon
+end
+
+"""DH network node representing a sump — a measurement point in the network.
+
+A `SumpNode` behaves identically to a [`JunctionNode`](@ref) during simulation: it routes
+flow between pipes without consuming or producing heat. The difference is that sumps are
+*tracked* — supply temperature, return temperature, and total mass flow at every sump are
+recorded in [`SimulationResults`](@ref) at each time step.
+
+Use sumps wherever you want to observe network conditions at an intermediate node without
+disturbing the topology.
+
+```julia
+struct SumpNode <: NodeType
+    common::NodeCommon
+end
+```
+
+# Constructors
+- `SumpNode(info::String)`
+- `SumpNode(info::String, position::Tuple{Float64, Float64})`
+- `SumpNode(position::Tuple{Float64, Float64})`
+- `SumpNode()`
+
+See also: [`JunctionNode`](@ref), [`SimulationResults`](@ref).
+"""
+struct SumpNode <: NodeType
     common::NodeCommon
 end
 
@@ -347,10 +376,11 @@ NeighborDicts() = NeighborDicts(Dict{String, Vector{String}}(), Dict{String, Vec
 """Network type representing a district heating network.
 ```julia
 mutable struct Network{T<:Integer} <: AbstractGraph{T}
-    mg::MetaGraph                               # MetaGraph from MetaGraphs.jl, it contains the network 
+    mg::MetaGraph                               # MetaGraph from MetaGraphs.jl, it contains the network
                                                     structure and node and edge data
     producer_label::Union{Nothing, String}      # Label of the producer node
     load_labels::Set{String}                    # Labels of the consumer nodes
+    sump_labels::Set{String}                    # Labels of the sump nodes
     neighbor_dicts::NeighborDicts               # Mappings to inneghbors and outneighbors for efficient access during simulation
 end
 ```
@@ -359,6 +389,7 @@ end
 - `mg`: a MetaGraphsNext `MetaGraph` that contains the directed topology and stores node/edge data.
 - `producer_label`: label of the single producer node (or `nothing` if not yet set).
 - `load_labels`: a set of labels for load nodes.
+- `sump_labels`: a set of labels for sump nodes.
 - `neighbor_dicts`: cached neighbor lists used to reduce allocations during simulation.
 
 # Constructors
@@ -372,10 +403,11 @@ mutable struct Network{T<:Integer} <: AbstractGraph{T}
     mg::MetaGraph                               # MetaGraph from MetaGraphs.jl, it contains the network structure and node and edge data
     producer_label::Union{Nothing, String}      # Label of the producer node
     load_labels::Set{String}                    # Labels of the consumer nodes
+    sump_labels::Set{String}                    # Labels of the sump nodes
     neighbor_dicts::NeighborDicts               # Mappings to inneghbors and outneighbors for efficient access during simulation
-    
-    function Network(mg::MetaGraph, producer_label, load_labels, neighbor_dicts) 
-        network = new{eltype(vertices(mg))}(mg, producer_label, load_labels, neighbor_dicts)
+
+    function Network(mg::MetaGraph, producer_label, load_labels, sump_labels, neighbor_dicts)
+        network = new{eltype(vertices(mg))}(mg, producer_label, load_labels, sump_labels, neighbor_dicts)
         check_and_update_neighbor_dicts!(network) # upon creation, construct the neighbor dicts
         return network
     end
@@ -393,7 +425,7 @@ function Network()
         vertex_data_type=NodeType,
         edge_data_type=EdgeType
     )
-    return Network(mg, nothing, Set{String}(), NeighborDicts())
+    return Network(mg, nothing, Set{String}(), Set{String}(), NeighborDicts())
 end
 
 # ------------------------------------------------- #
@@ -470,6 +502,12 @@ JunctionNode(info::String) = JunctionNode(NodeCommon(info))
 JunctionNode(info::String, position::Tuple{Float64, Float64}) = JunctionNode(NodeCommon(info, position))
 JunctionNode(position::Tuple{Float64, Float64}) = JunctionNode("junction", position)
 JunctionNode() = JunctionNode("junction")
+
+# SUMP NODE CONSTRUCTORS
+SumpNode(info::String) = SumpNode(NodeCommon(info))
+SumpNode(info::String, position::Tuple{Float64, Float64}) = SumpNode(NodeCommon(info, position))
+SumpNode(position::Tuple{Float64, Float64}) = SumpNode("sump", position)
+SumpNode() = SumpNode("sump")
 
 # LOAD NODE CONSTRUCTORS
 const DEFAULT_LOAD_PARAMS = [540.0, -36.0, 0.6]  # default quadratic polynomial coefficients (kW vs °C)

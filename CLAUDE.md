@@ -60,6 +60,7 @@ julia --project scripts/basic_network.jl
 - `ProducerNode` — root of the tree; at most one per network
 - `LoadNode` — leaf nodes (outdegree=0) with power demand curves
 - `JunctionNode` — branching/merging points (indegree≥1, outdegree≥1)
+- `SumpNode` — like `JunctionNode` but tracked: supply/return temperature and mass flow appear in `SimulationResults`; the network keeps a `sump_labels::Set{String}` analogous to `load_labels`
 - `EmptyNode` — placeholder used during construction
 
 ### Edge Types
