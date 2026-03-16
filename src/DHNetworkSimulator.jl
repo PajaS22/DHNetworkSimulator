@@ -29,6 +29,7 @@ include("network_creation.jl")
 export fill_physical_params!
 export name_nodes!
 export identify_producer_and_loads!
+export identify_sumps!
 export fill_node_positions!, fill_load_specs!
 
 include("network_methods.jl")

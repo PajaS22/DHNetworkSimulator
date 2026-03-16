@@ -118,6 +118,39 @@ function identify_producer_and_loads!(network::Network)
     end
 end
 
+"""Convert nodes to `SumpNode` by label.
+
+For each label in `sump_labels`, the node is converted to a `SumpNode` if it is currently
+an `EmptyNode` or a `JunctionNode`. The node's `info` and `position` are preserved when
+converting from a `JunctionNode`; a fresh `SumpNode` with `info=label` is created when
+converting from an `EmptyNode`.
+
+Nodes that are already a `SumpNode` are silently skipped. An error is raised if the label
+does not exist in the network, or if the node is of a type that cannot be converted
+(`ProducerNode`, `LoadNode`).
+
+```julia
+identify_sumps!(network, ["S1", "S2"])
+identify_sumps!(network, "S1")          # single label convenience form
+```
+"""
+function identify_sumps!(network::Network, sump_labels::Vector{String})
+    for label in sump_labels
+        has_label(network, label) || error("Node with label \"$label\" not found in the network.")
+        node = network[label]
+        if node isa SumpNode
+            continue  # already a sump, nothing to do
+        elseif node isa JunctionNode
+            network[label] = SumpNode(NodeCommon(node.common.info, node.common.position, node.common.mass_flow))
+        elseif node isa EmptyNode
+            network[label] = SumpNode(label)
+        else
+            error("Cannot convert node \"$label\" ($(typeof(node))) to SumpNode. Only EmptyNode and JunctionNode can be converted.")
+        end
+    end
+end
+identify_sumps!(network::Network, label::String) = identify_sumps!(network, [label])
+
 """Set load power curve and relative mass-flow coefficient for each load node.
 
 - `pwr_coefs`: `Dict{String, NTuple{3,Float64}}` mapping label → `(p₀, p₁, p₂)` for the quadratic

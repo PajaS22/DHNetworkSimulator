@@ -109,6 +109,62 @@
         @test nw["l2"].m_rel == 2.0
     end
 
+    @testset "identify_sumps!" begin
+        # convert EmptyNode to SumpNode
+        nw = Network()
+        nw["producer"] = ProducerNode()
+        nw["mid"]      = EmptyNode()
+        nw["load"]     = LoadNode("L", 1.0)
+        nw["producer", "mid"]  = InsulatedPipe(50)
+        nw["mid",      "load"] = InsulatedPipe(50)
+
+        identify_sumps!(nw, ["mid"])
+        @test nw["mid"] isa SumpNode
+        @test "mid" ∈ nw.sump_labels
+        @test nw["mid"].common.info == "mid"
+
+        # convert JunctionNode to SumpNode — info and position are preserved
+        nw2 = Network()
+        nw2["producer"] = ProducerNode()
+        nw2["jct"]      = JunctionNode("my junction", (5.0, 6.0))
+        nw2["load1"]    = LoadNode("L1", 1.0)
+        nw2["load2"]    = LoadNode("L2", 1.0)
+        nw2["producer", "jct"]   = InsulatedPipe(50)
+        nw2["jct",      "load1"] = InsulatedPipe(50)
+        nw2["jct",      "load2"] = InsulatedPipe(50)
+
+        identify_sumps!(nw2, ["jct"])
+        @test nw2["jct"] isa SumpNode
+        @test "jct" ∈ nw2.sump_labels
+        @test nw2["jct"].common.info     == "my junction"   # info preserved
+        @test nw2["jct"].common.position == (5.0, 6.0)      # position preserved
+
+        # already a SumpNode → silently skipped
+        identify_sumps!(nw2, ["jct"])
+        @test nw2["jct"] isa SumpNode
+
+        # single-label convenience form
+        nw3 = Network()
+        nw3["producer"] = ProducerNode()
+        nw3["s"]        = JunctionNode("S")
+        nw3["load"]     = LoadNode("L", 1.0)
+        nw3["producer", "s"]    = InsulatedPipe(50)
+        nw3["s",        "load"] = InsulatedPipe(50)
+        identify_sumps!(nw3, "s")
+        @test nw3["s"] isa SumpNode
+
+        # error on non-existent label
+        @test_throws ErrorException identify_sumps!(nw, ["nonexistent"])
+
+        # error on incompatible node types
+        nw4 = Network()
+        nw4["producer"] = ProducerNode()
+        nw4["load"]     = LoadNode("L", 1.0)
+        nw4["producer", "load"] = InsulatedPipe(50)
+        @test_throws ErrorException identify_sumps!(nw4, ["producer"])
+        @test_throws ErrorException identify_sumps!(nw4, ["load"])
+    end
+
     @testset "fill_load_specs! default" begin
         g = SimpleDiGraph(3)
         add_edge!(g, 1, 2)

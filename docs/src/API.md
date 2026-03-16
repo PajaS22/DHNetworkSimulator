@@ -48,6 +48,7 @@ DHNetworkSimulator.fill_node_positions!
 DHNetworkSimulator.fill_load_specs!
 DHNetworkSimulator.name_nodes!
 DHNetworkSimulator.identify_producer_and_loads!
+DHNetworkSimulator.identify_sumps!
 ```
 
 ```@docs

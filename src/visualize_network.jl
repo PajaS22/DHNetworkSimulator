@@ -28,12 +28,15 @@ const DEFAULT_ZERO_PIPE_K_REPULSION  = 0.3
 
 node_size(::JunctionNode) = 0   # specific size for junction nodes
 node_size(::ProducerNode) = 25  # specific size for producer nodes
+node_size(::LoadNode) = 25      # specific size for load nodes
+node_size(::SumpNode) = 22     # specific size for sump nodes
 node_size(::NodeType) = 18      # default size for other node types
 node_sizes(mg::MetaGraph) = [node_size(v) for v in vertices_data(mg)]
 
 node_color(::JunctionNode) = colorant"black"
 node_color(::ProducerNode) = colorant"green"
 node_color(::LoadNode) = colorant"blue"
+node_color(::SumpNode) = colorant"green"
 node_color(::NodeType) = colorant"gray"  # default color
 node_colors(mg::MetaGraph) = [node_color(mg[v]) for v in labels(mg)]
 
