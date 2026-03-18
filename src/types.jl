@@ -265,13 +265,24 @@ Plugs are advected through pipes during time stepping and may be split/merged.
 mutable struct Plug
     T::Float64  # Temperature at the plug [°C]
     m::Float64  # mass of the plug [kg]
+    k::Int      # simulation step when the plug entered the current pipe (0 = initial / not yet in a pipe)
 end
 ```
+
+`k` is set automatically when a plug is pushed into a pipe during simulation. It is used together
+with the simulation time step `Δt` to compute the transit time `τ = (step - k) · Δt`, which
+determines how much heat the plug loses to the surroundings.
 """
 mutable struct Plug
     T::Float64  # Temperature at the plug [°C]
     m::Float64  # mass of the plug [kg]
+    k::Int      # simulation step when the plug entered the current pipe (0 = initial / not yet in a pipe)
 end
+
+"""    Plug(T, m)
+Convenience constructor — creates a plug with `k = 0` (not yet in a pipe).
+"""
+Plug(T::Float64, m::Float64) = Plug(T, m, 0)
 
 """Physical parameters of a pipe (constant during simulation).
 
