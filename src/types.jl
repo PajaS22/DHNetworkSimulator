@@ -517,6 +517,7 @@ LoadSpec(params::Real...)              = LoadSpec(polynomial_load, collect(Float
 LoadSpec(fn::Function, params::Vector{<:Real}) = LoadSpec(fn, Vector{Float64}(params))
 LoadSpec(fn::Function, params::Real...) = LoadSpec(fn, collect(Float64, params))
 LoadSpec(::typeof(hockey_load); a::Real, b::Real, T_b::Real) = LoadSpec(hockey_load, Float64(a), Float64(b), Float64(T_b))
+
 LoadNode(info::String; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info), load, missing)
 LoadNode(info::String, m_rel::Float64; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info), load, m_rel)
 LoadNode(info::String, position::Tuple{Float64, Float64}; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info, position), load, missing)

@@ -26,11 +26,11 @@ See also: [`DEFAULT_ZERO_PIPE_K_ATTRACTION`](@ref), [`compute_zero_pipe_load_pos
 """
 const DEFAULT_ZERO_PIPE_K_REPULSION  = 0.3
 
-node_size(::JunctionNode) = 0   # specific size for junction nodes
-node_size(::ProducerNode) = 25  # specific size for producer nodes
-node_size(::LoadNode) = 25      # specific size for load nodes
-node_size(::SumpNode) = 22     # specific size for sump nodes
-node_size(::NodeType) = 18      # default size for other node types
+node_size(::JunctionNode) = 0   # junction nodes are invisible
+node_size(::ProducerNode) = 25  # pixel size for producer nodes
+node_size(::LoadNode) = 18      # pixel size for load nodes
+node_size(::SumpNode) = 22      # pixel size for sump nodes
+node_size(::NodeType) = 12      # pixel size for other node types
 node_sizes(mg::MetaGraph) = [node_size(v) for v in vertices_data(mg)]
 
 node_color(::JunctionNode) = colorant"black"
@@ -416,25 +416,53 @@ function compute_zero_pipe_load_positions(mg::MetaGraph;
     return result
 end
 
-"""Visualize a `Network` using GraphMakie.
+"""
+    visualize_graph!(nw; k_attraction, k_repulsion, zoom_factor, zoom_factor_labels) -> (figure, axis, plot)
 
-Returns `(figure, axis, plot)` from `GraphMakie.graphplot`. If edge mass flows
-have been computed (e.g. via `steady_state_hydrodynamics!`), the plot also
-shows flow-dependent edge styling.
+Visualize a `Network` using GraphMakie.
 
-`ZeroPipe` edges are drawn with a dotted line style to distinguish them from
-physical `InsulatedPipe` edges.
+Returns `(figure, axis, plot)` from `GraphMakie.graphplot`.
 
-`LoadNode`s that are connected to the network via a `ZeroPipe` and have no
-explicit position are automatically placed near their `ZeroPipe` source using
-an attraction-repulsion algorithm. Use `k_attraction` and `k_repulsion` to tune
-the placement; see [`compute_zero_pipe_load_positions`](@ref) for details.
-The module-level constants [`DEFAULT_ZERO_PIPE_K_ATTRACTION`](@ref) and
-[`DEFAULT_ZERO_PIPE_K_REPULSION`](@ref) are used as defaults.
+**Styling**
+- Node markers are fixed-pixel hexagons (unaffected by zoom level).
+- `JunctionNode`s remain invisible at all zoom levels.
+- `InsulatedPipe` edges are coloured by water velocity when mass flows are
+  available; `ZeroPipe` edges are drawn with a dotted line.
+- Edge widths are scaled by pipe inner diameter.
+- The axis uses `DataAspect()` so that node coordinates are rendered with a
+  1:1 aspect ratio throughout zoom and pan. Positions are centred around
+  (0, 0) internally to avoid a Makie Float32 precision bug that occurs at
+  extreme zoom on large absolute coordinates (e.g. UTM / national grid).
+
+**Zoom-gated labels and arrows**
+Node labels, edge labels, and flow arrows are hidden when the visible area is
+wide and revealed automatically once the user has zoomed in enough. The
+threshold is `zoom_factor × typical_distance`, where `typical_distance` is the
+mean inter-node distance sampled from the positioned nodes.
+
+- Default edge label (zoomed in): mass flow and relative mass flow.
+- Hover edge label (any zoom): pipe name, length, diameter, and velocity.
+
+**ZeroPipe auto-positioning**
+`LoadNode`s connected via a `ZeroPipe` with no explicit position are placed
+automatically near their source using an attraction-repulsion algorithm.
+See [`compute_zero_pipe_load_positions`](@ref) for tuning options.
+
+# Keyword arguments
+- `k_attraction`: spring constant for ZeroPipe load placement (default [`DEFAULT_ZERO_PIPE_K_ATTRACTION`](@ref)).
+- `k_repulsion`: repulsion strength for ZeroPipe load placement (default [`DEFAULT_ZERO_PIPE_K_REPULSION`](@ref)).
+- `zoom_factor`: node labels and flow arrows appear when the view width drops
+  below `zoom_factor × typical_distance` (default `5.0`).
+- `zoom_factor_labels`: default edge labels (mass flow, relative mass flow)
+  appear when the view width drops below `zoom_factor_labels × typical_distance`
+  (default `7.0`). Set higher than `zoom_factor` so edge labels appear before
+  arrows as you zoom in. Hover labels are always visible regardless of zoom.
 """
 function visualize_graph!(nw::Network;
-                          k_attraction::Float64 = DEFAULT_ZERO_PIPE_K_ATTRACTION,
-                          k_repulsion::Float64  = DEFAULT_ZERO_PIPE_K_REPULSION)
+                          k_attraction::Float64        = DEFAULT_ZERO_PIPE_K_ATTRACTION,
+                          k_repulsion::Float64         = DEFAULT_ZERO_PIPE_K_REPULSION,
+                          zoom_factor::Float64         = 5.0,
+                          zoom_factor_labels::Float64  = 1.0)
     mg = nw.mg
 
     # Compute positions for any ZeroPipe-connected loads that lack one.
@@ -445,46 +473,117 @@ function visualize_graph!(nw::Network;
         node_positions[code_for(mg, label)] = pos
     end
 
-    f, ax, p = graphplot(mg, layout = any(ismissing.(node_positions)) ? GraphMakie.Spring() : node_positions,
-                        node_size = node_sizes(mg),
+    # Typical inter-node distance — used for the zoom threshold.
+    # Computed from raw positions; translation-invariant so the offset below doesn't matter.
+    pos_vals = filter(!ismissing, node_positions)
+    typical  = _sample_typical_distance(pos_vals)
+
+    # Offset all positions to be centred near (0, 0).
+    # Makie's internal Float32 coordinate pipeline (f32c) fails at extreme zoom
+    # when absolute coordinate values are large (e.g. UTM / national grid coordinates
+    # in the range of hundreds of thousands). Centring removes the large offset while
+    # preserving all relative distances and proportions exactly.
+    if !isempty(pos_vals)
+        x_off = sum(p[1] for p in pos_vals) / length(pos_vals)
+        y_off = sum(p[2] for p in pos_vals) / length(pos_vals)
+        node_positions = [ismissing(p) ? missing : (p[1] - x_off, p[2] - y_off)
+                          for p in node_positions]
+    end
+
+    # Start with blank labels and zero arrow size; the zoom callback below
+    # reveals them once the user has zoomed in past the threshold.
+    n_nodes = nv(mg)
+    n_edges = ne(mg)
+
+    f, ax, p = graphplot(mg,
+                        layout     = any(ismissing.(node_positions)) ? GraphMakie.Spring() : node_positions,
+                        node_size  = node_sizes(mg),
                         node_color = node_colors(mg),
-                        node_attr = (; markerspace = :pixel, marker = :hexagon),
-                        nlabels = node_labels(mg),
+                        node_attr  = (; markerspace = :pixel, marker = :hexagon),
+                        nlabels    = fill("", n_nodes),
                         nlabels_attr = (; markerspace = :pixel),
                         nlabels_fontsize = 12,
                         edge_color = edge_colors(mg),
                         edge_width = edge_widths(mg, 10.0, 2.0),
-                        edge_attr = (; linestyle = edge_linestyles(mg)),
-                        elabels = edge_infos(mg),
+                        edge_attr  = (; linestyle = edge_linestyles(mg)),
+                        elabels    = fill("", n_edges),
                         elabels_fontsize = 12,
-                        elabels_attr = (;markerspace = :pixel),
-                        arrow_size = 20
-                        )
+                        elabels_attr = (; markerspace = :pixel),
+                        arrow_size = 0)
+
+    # 1:1 aspect ratio throughout zoom/pan — preserves real-world metre proportions.
+    ax.aspect = DataAspect()
     ax.xautolimitmargin = (0.15, 0.15)
     ax.yautolimitmargin = (0.15, 0.15)
-    autolimits!(ax)
-    # Equalise x/y data ranges so initial view has 1:1 pixel scale
-    fl = ax.finallimits[]
-    cx = fl.origin[1] + fl.widths[1] / 2
-    cy = fl.origin[2] + fl.widths[2] / 2
-    r  = max(fl.widths[1], fl.widths[2]) / 2
-    limits!(ax, cx - r, cx + r, cy - r, cy + r)
     hidespines!(ax)
     hidedecorations!(ax)
 
-    # to be closed in callback function
+    # Precompute node labels and hidden-state arrays (these never change).
+    # Edge labels are computed fresh each time the user zooms in so they always
+    # reflect the current simulation state, even if run_simulation was called
+    # after visualize_graph!.
+    lod_node_labels  = node_labels(mg)
+    lod_hidden_nodes = fill("", n_nodes)
+    lod_hidden_edges = fill("", n_edges)
+
+    # Two independent zoom thresholds:
+    #   threshold_arrows — node labels + flow arrows (zoom_factor, default 5×typical)
+    #   threshold_labels — default edge labels      (zoom_factor_labels, default 7×typical)
+    # Higher factor = appears at a wider view (less zoom required).
+    # The early-return guards keep each branch O(1) per frame during smooth zoom.
+    threshold_arrows = zoom_factor        * typical
+    threshold_labels = zoom_factor_labels * typical
+
+    prev_arrows_visible = Ref{Bool}(false)
+    prev_labels_visible = Ref{Bool}(false)
+
+    function update_lod!(limits)
+        w = limits.widths[1]
+        new_arrows = w < threshold_arrows
+        new_labels = w < threshold_labels
+
+        if new_arrows != prev_arrows_visible[]
+            prev_arrows_visible[] = new_arrows
+            p.nlabels[]    = new_arrows ? lod_node_labels : lod_hidden_nodes
+            p.arrow_size[] = new_arrows ? 20.0            : 0.0
+        end
+
+        if new_labels != prev_labels_visible[]
+            prev_labels_visible[] = new_labels
+            p.elabels[] = new_labels ? edge_infos(mg) : lod_hidden_edges
+        end
+    end
+    on(update_lod!, ax.finallimits)
+
+    # autolimits! triggers finallimits, which fires update_lod! to set initial visibility.
+    autolimits!(ax)
+
+    # Hover: highlight hovered edge in red and show detailed label.
+    # Hover labels are always shown on hover regardless of zoom level.
+    # On hover-off, restore the default label if the edge-label threshold is met,
+    # otherwise restore blank (the LOD callback owns the bulk state).
     edge_label_list = [(label_for(nw, src(e)), label_for(nw, dst(e))) for e in edges(nw)]
 
     function edge_hover_action(state, idx, event, axis)
-        # p.edge_width[][idx] = state ? ew[idx] : ew[idx]*1.5
-        # p.edge_width[] = p.edge_width[] # trigger observable
         label = edge_label_list[idx]
-        
+
+        # Color: in-place mutation + notify (reliable for this pipeline stage).
         p.edge_color[][idx] = state ? colorant"red" : edge_color(mg[label...])
-        p.edge_color[] = p.edge_color[] # trigger observable
-        
-        p.elabels[][idx] = state ? edge_info_hover(mg[label...]) : edge_info(mg[label...])
-        p.elabels[] = p.elabels[] # trigger observable
+        notify(p.edge_color)
+
+        # Labels: full array replacement required — the Makie compute pipeline
+        # ignores in-place mutations on a Computed value; only setindex! on the
+        # input Observable triggers a re-render.
+        # Hover labels are shown at any zoom level; on hover-off the default label
+        # is restored if the edge-label threshold is met, otherwise blank.
+        new_labels = copy(p.elabels[])
+        if state
+            new_labels[idx] = edge_info_hover(mg[label...])
+        else
+            within_label_threshold = ax.finallimits[].widths[1] < threshold_labels
+            new_labels[idx] = within_label_threshold ? edge_info(mg[label...]) : ""
+        end
+        p.elabels[] = new_labels
     end
     register_interaction!(ax, :ehover, EdgeHoverHandler(edge_hover_action))
 
