@@ -155,6 +155,7 @@ DHNetworkSimulator.producer_loads_delays
 
 ```@docs
 DHNetworkSimulator.compute_time_delay
+DHNetworkSimulator.compute_initial_delay
 ```
 
 ## External helpers

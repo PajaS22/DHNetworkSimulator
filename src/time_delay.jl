@@ -88,6 +88,78 @@ function compute_time_delay(
 end
 
 
+"""
+    compute_initial_delay(network, sim_result, Δt; label=nothing)
+
+Compute only τ(1) — the transit time [s] for a water plug that enters the
+producer node at the **first** simulation step to reach each load.
+
+This is the **warmup duration**: temperature signals recorded before this time
+still reflect the water that pre-filled the pipes at simulation start, not the
+actual producer output, and should therefore be excluded when comparing
+simulated results to measurements.
+
+Equivalent to `compute_time_delay(...)[1]` for each load, but runs in
+O(P·log N) per load instead of O(N·P·log N), making it fast to call on large
+networks before any analysis loop.
+
+# Arguments
+- `network::Network`: the network (topology + pipe geometry).
+- `sim_result::SimulationResults`: completed simulation; load mass flows are
+  read from `sim_result[lbl, :mass_flow_load]`.
+- `Δt::Real`: simulation time step [s].
+
+# Keyword arguments
+- `label::Union{String,Nothing}`: if a string, compute only for that load and
+  return a single `Union{Float64,Missing}`.  If `nothing` (default), compute
+  for all loads and return a `Dict{String,Union{Float64,Missing}}`.
+
+# Returns
+`missing` when the plug does not reach the load within the simulation window.
+
+# Example
+```julia
+sr = run_simulation(network, t_vec, policy; mode=:forward_only)
+warmup = compute_initial_delay(network, sr, Δt)   # Dict for all loads
+
+# Skip warmup steps when comparing to measurements at stride `s`:
+skip(lbl) = ceil(Int, coalesce(warmup[lbl], 0.0) / Δt / s)
+```
+"""
+function compute_initial_delay(
+    network::Network,
+    sim_result::SimulationResults,
+    Δt::Real;
+    label::Union{String, Nothing} = nothing,
+)::Union{Union{Float64, Missing}, Dict{String, Union{Float64, Missing}}}
+
+    labels = label === nothing ? collect(network.load_labels) : [label]
+    N      = length(sim_result[:mass_flow_producer])
+
+    results = Dict{String, Union{Float64, Missing}}()
+
+    for lbl in labels
+        path = _td_path_to_load(network, lbl)
+        segs = _td_pipe_segments(network, sim_result, path, Float64(Δt), N)
+
+        start   = 1   # plug enters at step 1
+        success = true
+        for (M_pipe, cumflow) in segs
+            start > N && (success = false; break)
+            target = cumflow[start] + M_pipe
+            idx = searchsortedfirst(cumflow, target,
+                                    start + 1, N + 1, Base.Order.Forward)
+            idx > N + 1 && (success = false; break)
+            start = idx - 1   # arrival step for this pipe
+        end
+
+        results[lbl] = success ? (start - 1) * Float64(Δt) : missing
+    end
+
+    return label === nothing ? results : results[label]
+end
+
+
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 # Walk backwards from `load_label` to the producer and return the full node path

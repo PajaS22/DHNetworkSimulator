@@ -68,7 +68,7 @@ export SimulationResults
 export ProducerOutput
 
 include("time_delay.jl")
-export compute_time_delay
+export compute_time_delay, compute_initial_delay
 
 include("network_analysis.jl")
 export producer_loads_volumes, producer_loads_delays

@@ -66,7 +66,7 @@
     @testset "run_simulation validation" begin
         nw      = make_network()
         p_full  = (t, Ta, Tb) -> ProducerOutput(mass_flow=10.0, temperature=80.0)
-        p_2arg  = (t, Ta)     -> ProducerOutput(mass_flow=10.0, temperature=80.0)
+        p_2arg  = (t, Ta, Tb) -> ProducerOutput(mass_flow=10.0, temperature=80.0)
 
         # invalid mode symbol
         @test_throws ErrorException run_simulation(nw, t, p_full; mode=:invalid)
@@ -174,7 +174,7 @@
 
     @testset ":forward_only mode" begin
         nw = make_network()
-        p  = (t, Ta) -> ProducerOutput(mass_flow=10.0, temperature=80.0)
+        p  = (t, Ta, Tb) -> ProducerOutput(mass_flow=10.0, temperature=80.0)
         sr = run_simulation(nw, t, p; mode=:forward_only, T0_f=60.0,
                             ambient_temperature=Tₐ)
 
@@ -237,8 +237,8 @@
         # mass flows are positive (hydraulics ran)
         @test all(sr.mass_flow_load .> 0.0)
 
-        # :backward_only also accepts a 2-arg function policy
-        p_fn = (t, Ta) -> ProducerOutput(mass_flow=10.0, temperature=nothing)
+        # :backward_only also accepts a function policy (T_back is missing in this mode)
+        p_fn = (t, Ta, Tb) -> ProducerOutput(mass_flow=10.0, temperature=nothing)
         sr2  = run_simulation(nw, t, p_fn; mode=:backward_only,
                               T_return_inject=T_inject, T0_b=50.0)
         @test !isnothing(sr2.T_producer_in)
@@ -267,7 +267,7 @@
 
     @testset ":hybrid mode" begin
         nw = make_network()
-        p  = (t, Ta) -> ProducerOutput(mass_flow=10.0, temperature=80.0)
+        p  = (t, Ta, Tb) -> ProducerOutput(mass_flow=10.0, temperature=80.0)
         sr = run_simulation(nw, t, p; mode=:hybrid, T_return_inject=T_inject,
                             T0_f=60.0, T0_b=50.0, ambient_temperature=Tₐ)
 
@@ -313,7 +313,7 @@
         # Inject return temperature higher than initial forward fill temperature (60 °C).
         # At early steps T_load_in ≈ 60 °C < 90 °C inject → P = m·Cp·(60−90)/1000 < 0.
         T_hot = Dict("load1" => fill(90.0, N), "load2" => fill(90.0, N))
-        p  = (t, Ta) -> ProducerOutput(mass_flow=10.0, temperature=80.0)
+        p  = (t, Ta, Tb) -> ProducerOutput(mass_flow=10.0, temperature=80.0)
         sr = run_simulation(nw, t, p; mode=:hybrid, T_return_inject=T_hot,
                             T0_f=60.0, T0_b=50.0)
 
@@ -330,7 +330,7 @@
 
     @testset "chaining hybrid → backward_only" begin
         nw = make_network()
-        p  = (t, Ta) -> ProducerOutput(mass_flow=10.0, temperature=80.0)
+        p  = (t, Ta, Tb) -> ProducerOutput(mass_flow=10.0, temperature=80.0)
         sr_hyb = run_simulation(nw, t, p; mode=:hybrid, T_return_inject=T_inject,
                                 T0_f=60.0, T0_b=50.0)
 
@@ -338,7 +338,7 @@
         T_inj2 = Dict(l => sr_hyb[l, :T_load_out]
                       for l in keys(sr_hyb[:load_labels_dict]))
 
-        p_bwd  = (t, Ta) -> ProducerOutput(mass_flow=10.0)
+        p_bwd  = (t, Ta, Tb) -> ProducerOutput(mass_flow=10.0)
         sr_bwd = run_simulation(nw, t, p_bwd; mode=:backward_only,
                                 T_return_inject=T_inj2, T0_b=50.0)
 
@@ -386,7 +386,7 @@
         nw2 = make_network()
 
         pvec    = [ProducerOutput(10.0, 80.0) for _ in 1:N]
-        p_2arg  = (t, Ta) -> ProducerOutput(mass_flow=10.0, temperature=80.0)
+        p_2arg  = (t, Ta, Tb) -> ProducerOutput(mass_flow=10.0, temperature=80.0)
 
         sr_full = run_simulation(nw1, t, pvec; mode=:full)
         sr_fwd  = run_simulation(nw2, t, p_2arg; mode=:forward_only)
@@ -536,7 +536,7 @@
 
         sim_t = float.(collect(0:60.0:3600.0))
         N     = length(sim_t)
-        policy = (t, Ta) -> ProducerOutput(mass_flow=5.0, temperature=75.0)
+        policy = (t, Ta, Tb) -> ProducerOutput(mass_flow=5.0, temperature=75.0)
         sr = run_simulation(nw, sim_t, policy; mode=:forward_only)
 
         # T_sump_b is Nothing in forward_only mode

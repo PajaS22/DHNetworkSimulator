@@ -113,13 +113,11 @@ end
 The `policy` passed to [`run_simulation`](@ref) must return a `ProducerOutput`:
 
 ```julia
-# 3-argument form (used in :full mode)
-function policy(t, Tₐ, T_back)
-    return ProducerOutput(mass_flow=15.0, temperature=90.0)
-end
-
-# 2-argument form (used in :forward_only, :backward_only, :hybrid modes)
-function policy(t, Tₐ)
+# Unified 3-argument form — always called as policy(t, T_a, T_back).
+# T_a   is missing when no ambient_temperature vector is provided.
+# T_back is missing in :forward_only, :backward_only, and :hybrid modes.
+function policy(t, T_a, T_back)
+    T_back_eff = ismissing(T_back) ? 40.0 : T_back   # fallback when return T unavailable
     return ProducerOutput(mass_flow=15.0, temperature=90.0)
 end
 
@@ -231,9 +229,10 @@ REPEAT for N time steps:
     - `Vector{Float64}`: time in seconds.
     - `Vector{DateTime}`: timestamps (Δt is interpreted in seconds).
 - `policy`: producer setpoints, either:
-    - `Function` — called each step:
-        - 3-arg `policy(t, Tₐ, T_back)` in `:full` mode.
-        - 2-arg `policy(t, Tₐ)` in `:forward_only`, `:backward_only`, `:hybrid` modes.
+    - `Function` — always called as `policy(t, T_a, T_back)`:
+        - `T_a` is `missing` when no `ambient_temperature` vector is supplied.
+        - `T_back` is `missing` in `:forward_only`, `:backward_only`, and `:hybrid` modes;
+          it holds the previous-step producer return temperature in `:full` mode.
     - `Vector{ProducerOutput}` — pre-built vector of length N.
       `temperature` may be `nothing` only in `:backward_only` mode.
 
@@ -319,12 +318,9 @@ function run_simulation(
     else
         # test function policy for the first time step
         try
-            Tₐ_test  = isnothing(ambient_temperature) ? nothing : ambient_temperature[1]
-            test_out = if mode == :full
-                policy(sim_time[1], Tₐ_test, T0_b)
-            else
-                policy(sim_time[1], Tₐ_test)
-            end
+            Tₐ_test     = isnothing(ambient_temperature) ? missing : ambient_temperature[1]
+            T_back_test = (mode == :full) ? T0_b : missing
+            test_out    = policy(sim_time[1], Tₐ_test, T_back_test)
             test_out isa ProducerOutput ||
                 error("Policy function must return a ProducerOutput struct.")
             if mode ∈ (:full, :forward_only, :hybrid) && isnothing(test_out.temperature)
@@ -364,11 +360,10 @@ function run_simulation(
         # policy dispatch
         input = if policy isa Vector{ProducerOutput}
             policy[i]
-        elseif mode == :full
-            T_back = i > 1 ? results_temperature_producer_in[i-1] : T0_b
-            policy(sim_time[i], Tₐ, T_back)
         else
-            policy(sim_time[i], Tₐ)
+            Tₐ_policy     = isnothing(Tₐ) ? missing : Tₐ
+            T_back_policy = (mode == :full) ? (i > 1 ? results_temperature_producer_in[i-1] : T0_b) : missing
+            policy(sim_time[i], Tₐ_policy, T_back_policy)
         end
 
         results_temperature_producer_out[i] = isnothing(input.temperature) ? NaN : input.temperature
