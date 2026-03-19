@@ -62,4 +62,7 @@ export plot_simulation_results
 export SimulationResults
 export ProducerOutput
 
+include("time_delay.jl")
+export compute_time_delay
+
 end # module DHNetworkSimulator
