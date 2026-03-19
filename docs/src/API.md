@@ -151,5 +151,11 @@ DHNetworkSimulator.producer_loads_volumes
 DHNetworkSimulator.producer_loads_delays
 ```
 
+## Time delay
+
+```@docs
+DHNetworkSimulator.compute_time_delay
+```
+
 ## External helpers
 This package relies on MetaGraphsNext.jl internally. If you need to convert a Graphs.jl vertex index back to the stored string label, use `MetaGraphsNext.label_for(nw.mg, idx)`.

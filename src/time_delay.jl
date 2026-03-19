@@ -90,10 +90,8 @@ end
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
-"""
-Walk backwards from `load_label` to the producer and return the full node path
-[producer, …, load_label].  Assumes a tree (each node has at most one parent).
-"""
+# Walk backwards from `load_label` to the producer and return the full node path
+# [producer, …, load_label].  Assumes a tree (each node has at most one parent).
 function _td_path_to_load(network::Network, load_label::String)::Vector{String}
     path = String[load_label]
     node = load_label
@@ -105,10 +103,8 @@ function _td_path_to_load(network::Network, load_label::String)::Vector{String}
     return path
 end
 
-"""
-Return the set of load labels reachable (downstream) from `node`, including
-`node` itself if it is a load.
-"""
+# Return the set of load labels reachable (downstream) from `node`, including
+# `node` itself if it is a load.
 function _td_downstream_loads(network::Network, node::String)::Set{String}
     node in network.load_labels && return Set{String}([node])
     loads = Set{String}()
@@ -118,15 +114,11 @@ function _td_downstream_loads(network::Network, node::String)::Set{String}
     return loads
 end
 
-"""
-For each `InsulatedPipe` segment on `path`, build a tuple
-    (M_pipe_kg, cumflow)
-where `cumflow` is the length-(N+1) precomputed cumulative integral of the
-mass flow [kg] through that pipe over time.
-
-The flow through an intermediate pipe equals the sum of simulated mass flows of
-all downstream loads (those reachable through the pipe's destination node).
-"""
+# For each InsulatedPipe segment on `path`, build a tuple (M_pipe_kg, cumflow)
+# where cumflow is the length-(N+1) precomputed cumulative integral of the
+# mass flow [kg] through that pipe over time.
+# Flow through an intermediate pipe = sum of simulated mass flows of all
+# downstream loads (those reachable through the pipe's destination node).
 function _td_pipe_segments(
     network::Network,
     sim_result::SimulationResults,
