@@ -103,13 +103,19 @@ function identify_producer_and_loads!(network::Network)
     for nl in all_labels(network)
         if outdegree(network, nl) > 0 && indegree(network, nl) == 0
             # this is a source node, we will treat it as producer
-            network[nl] = ProducerNode(nl)
+            if !(network[nl] isa ProducerNode)
+                network[nl] = ProducerNode(nl)     
+            end
         elseif outdegree(network, nl) == 0 && indegree(network, nl) > 0
             # this is a sink node, we will treat it as load
-            network[nl] = LoadNode(nl)
+            if !(network[nl] isa LoadNode)
+                network[nl] = LoadNode(nl)
+            end
         elseif outdegree(network, nl) > 0 && indegree(network, nl) > 0
             # this is a junction node
-            network[nl] = JunctionNode(nl)
+            if !(network[nl] isa JunctionNode)
+                network[nl] = JunctionNode(nl)
+            end
         else
             # this is an isolated node, we will treat it as empty node
             warning("Node $(nl) is isolated (no incoming or outgoing edges). It will be treated as an empty node.")
