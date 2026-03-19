@@ -17,6 +17,7 @@ Base.getindex(nw::Network, i::Vector{Int}) = [nw.mg[MetaGraphsNext.label_for(nw.
 
 Base.setindex!(nw::Network, v::ProducerNode, label::String) = add_producer_node!(nw, v, label)
 Base.setindex!(nw::Network, v::LoadNode, label::String) = add_load_node!(nw, v, label)
+Base.setindex!(nw::Network, v::SumpNode, label::String) = add_sump_node!(nw, v, label)
 Base.setindex!(nw::Network, v::NT, label::String) where {NT<:NodeType} = add_node!(nw, v, label)
 Base.setindex!(nw::Network, v::Vector{NT}, labels::Vector{String}) where {NT<:NodeType} = (for (j, lbl) in enumerate(labels); nw.mg[lbl] = v[j]; end)
 
@@ -95,6 +96,15 @@ function check_network!(network::Network)
                 error("Load nodes must be leaves (outdegree must be 0)! Node with label $load_label has outdegree $(outdegree(network, load_label))")
             end
         end
+        # check that sump nodes are internal (not leaves, not root)
+        for sump_label in network.sump_labels
+            if outdegree(network, sump_label) == 0
+                error("Sump nodes must not be leaves (outdegree must be > 0)! Node $sump_label has outdegree 0.")
+            end
+            if indegree(network, sump_label) == 0
+                error("Sump nodes must have exactly one incoming edge (indegree must be > 0)! Node $sump_label has indegree 0.")
+            end
+        end
     end
 end
 
@@ -112,6 +122,9 @@ function rem_node!(nw::Network, label::String)
     elseif v isa LoadNode
         # removing load node
         filter!(x -> x != label, nw.load_labels)
+    elseif v isa SumpNode
+        # removing sump node
+        filter!(x -> x != label, nw.sump_labels)
     end
     Graphs.rem_vertex!(nw.mg, index_for(nw, label))
     nw.neighbor_dicts.need_rebuild = true
@@ -171,6 +184,13 @@ position(v::NT)  where {NT<:NodeType} = !ismissing(v.common.position) ? (v.commo
 positions(mg::MetaGraph) = [position(v) for v in vertices_data(mg)]
 distance(v1::NodeType, v2::NodeType) = sqrt((v1.common.position[1] - v2.common.position[1])^2 + (v1.common.position[2] - v2.common.position[2])^2)
 
+# vector operations for positions
+Base.:+(a::Tuple{Float64, Float64}, b::Tuple{Float64, Float64}) = (a[1] + b[1], a[2] + b[2])
+Base.:-(a::Tuple{Float64, Float64}, b::Tuple{Float64, Float64}) = (a[1] - b[1], a[2] - b[2])
+Base.:*(a::Real, b::Tuple{Float64, Float64}) = (a * b[1], a * b[2])
+Base.:*(a::Tuple{Float64, Float64}, b::Real) = (a[1] * b, a[2] * b)
+Base.:/(a::Tuple{Float64, Float64}, b::Real) = (a[1] / b, a[2] / b)
+
 # ------------------------------------------------ #
 # NODE TYPE SPECIFIC METHODS
 # ------------------------------------------------ #
@@ -188,6 +208,10 @@ function add_producer_node!(nw::Network, v::ProducerNode, label::String)
     add_node!(nw, v, label)
     nw.producer_label = label
 end
+function add_sump_node!(nw::Network, v::SumpNode, label::String)
+    add_node!(nw, v, label)
+    push!(nw.sump_labels, label)
+end
 
 # default method for adding a node in network
 function add_node!(nw::Network, v::NT, label::String) where {NT<:NodeType}
@@ -198,6 +222,9 @@ function add_node!(nw::Network, v::NT, label::String) where {NT<:NodeType}
         elseif nw[label] isa ProducerNode
             # removing producer node
             nw.producer_label = nothing
+        elseif nw[label] isa SumpNode
+            # removing sump node from sump_labels
+            filter!(x -> x != label, nw.sump_labels)
         end
     end
     nw.mg[label] = v
@@ -343,6 +370,25 @@ Base.length(e::InsulatedPipe) = pipe_length(e)
 """Return pipe inner diameter in meters."""
 inner_diameter(e::InsulatedPipe) = e.physical_params.inner_diameter
 
+"""
+    volume(e::InsulatedPipe) -> Float64
+    volume(e::ZeroPipe) -> Float64
+
+Return the internal water volume of pipe `e` in cubic meters.
+
+For an `InsulatedPipe` this is computed as `π/4 · L · d²`, where `L` is the pipe length
+and `d` is the inner diameter. For a `ZeroPipe` the volume is always `0.0`.
+
+# Examples
+```julia
+params = PipeParams(length=100.0, inner_diameter=0.05)
+pipe = InsulatedPipe(info="supply", physical_params=params)
+volume(pipe)   # ≈ 0.196 m³  (π/4 × 100 × 0.05²)
+```
+"""
+volume(e::InsulatedPipe) = π/4 * pipe_length(e) * inner_diameter(e)^2
+volume(e::ZeroPipe) = 0.0
+
 """Return thermal resistance (supply direction) in m·K/W."""
 heat_resistance_forward(e::InsulatedPipe) = e.physical_params.heat_resistance_forward
 
@@ -383,7 +429,7 @@ water_velocity(::ZeroPipe) = missing
 """Compute water velocities for all pipe edges in the network.
 
 Returns a `Dict{Tuple{String,String}, Float64}` keyed by `(src_label, dst_label)`, with velocity in m/s.
-Requires mass flows to be set first (e.g. via `steady_state_hydronynamics!`).
+Requires mass flows to be set first (e.g. via `steady_state_hydrodynamics!`).
 """
 function water_velocities(nw::Network)::Dict{Tuple{String, String}, Float64}
     velocities = Dict{Tuple{String, String}, Float64}()

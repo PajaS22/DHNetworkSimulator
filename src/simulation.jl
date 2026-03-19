@@ -17,6 +17,11 @@ struct SimulationResults
         power_load::Union{Matrix{Float64}, Nothing}
         power_producer::Union{Vector{Float64}, Nothing}
         load_labels::Dict{String, Int}
+        mass_flow_sump::Matrix{Float64}
+        T_sump_f::Matrix{Float64}
+        T_sump_b::Union{Matrix{Float64}, Nothing}
+        sump_labels::Dict{String, Int}
+        producer_label::String
 end
 ```
 
@@ -33,6 +38,11 @@ end
 - `power_load`: load power consumption in kW. Size `N × nloads`. `Nothing` in forward-only mode.
 - `power_producer`: producer power output in MW (computed from mass flow and ΔT). Length `N-1`. `Nothing` in forward-only mode.
 - `load_labels`: mapping from load label to column index used in the `*_load` matrices.
+- `mass_flow_sump`: sump mass flows in kg/s. Size `N × nsumps`.
+- `T_sump_f`: supply (forward) temperature at each sump in °C. Size `N × nsumps`. `NaN` in backward-only mode.
+- `T_sump_b`: return (backward) temperature at each sump in °C. Size `N × nsumps`. `Nothing` in forward-only mode.
+- `sump_labels`: mapping from sump label to column index used in the `*_sump` matrices.
+- `producer_label`: label of the producer node (used by the universal indexing aliases).
 
 # Indexing
 Convenience accessors are provided:
@@ -40,10 +50,21 @@ Convenience accessors are provided:
 - `sr[:time]` returns the time vector.
 - `sr[:load_labels]` returns the load labels.
 - `sr[:load_labels_dict]` returns the label→column dictionary.
-- `sr["L1", :T_load_in]` returns the time series for that load L1 (a vector).
+- `sr[:sump_labels]` returns the sump labels.
+- `sr[:sump_labels_dict]` returns the sump label→column dictionary.
+- `sr["L1", :T_load_in]` returns the time series for load L1 (a vector).
+- `sr["S1", :T_sump_f]` returns the supply temperature time series for sump S1 (a vector).
+- `sr["S1", :T_sump_b]` returns the return temperature time series for sump S1 (a vector).
+- `sr["S1", :mass_flow_sump]` returns the mass flow time series for sump S1 (a vector).
+
+Universal aliases (work for any label — load, sump, or producer):
+
+- `sr["L1", :T_in]` returns the inlet temperature: supply T for loads/sumps, return T for the producer.
+- `sr["L1", :T_out]` returns the outlet temperature: return T for loads/sumps, supply T for the producer.
+- `sr["L1", :mass_flow]` returns the mass flow time series for the named node.
 
 # Notes
-- All matrices are organized as `(time step, load index)`.
+- All matrices are organized as `(time step, node index)`.
 - `power_producer` has length `N-1` because the producer heats water that arrived from the *previous* time step — so there is one fewer value than time steps.
 """
 struct SimulationResults
@@ -57,10 +78,15 @@ struct SimulationResults
     power_load::Union{Matrix{Float64}, Nothing}     # (kW) power consumption at load nodes (rows: time steps, columns: load nodes); Nothing in forward-only mode
     power_producer::Union{Vector{Float64}, Nothing} # (MW) power output at producer node; Nothing in forward-only mode
     load_labels::Dict{String, Int}          # labels of load nodes corresponding to columns
+    mass_flow_sump::Matrix{Float64}         # mass flows at sump nodes (rows: time steps, columns: sump nodes)
+    T_sump_f::Matrix{Float64}              # supply (forward) temperature at sump nodes; NaN in backward_only mode
+    T_sump_b::Union{Matrix{Float64}, Nothing}  # return (backward) temperature at sump nodes; Nothing in forward_only mode
+    sump_labels::Dict{String, Int}          # labels of sump nodes corresponding to columns
+    producer_label::String                  # label of the producer node
 end
 # constructor with keyword arguments for better readability
-function SimulationResults(;time, mass_flow_load, mass_flow_producer, T_load_in, T_load_out, T_producer_in, T_producer_out, power_load, power_producer, load_labels_dict)
-    return SimulationResults(time, mass_flow_load, mass_flow_producer, T_load_in, T_load_out, T_producer_in, T_producer_out, power_load, power_producer, load_labels_dict)
+function SimulationResults(;time, mass_flow_load, mass_flow_producer, T_load_in, T_load_out, T_producer_in, T_producer_out, power_load, power_producer, load_labels_dict, mass_flow_sump, T_sump_f, T_sump_b, sump_labels_dict, producer_label)
+    return SimulationResults(time, mass_flow_load, mass_flow_producer, T_load_in, T_load_out, T_producer_in, T_producer_out, power_load, power_producer, load_labels_dict, mass_flow_sump, T_sump_f, T_sump_b, sump_labels_dict, producer_label)
 end
 
 # ------------------------------------------------ #
@@ -108,10 +134,20 @@ end
 ProducerOutput(; mass_flow, temperature=nothing) = ProducerOutput(mass_flow, temperature)
 
 function Base.getindex(sr::SimulationResults, label::String, s::Symbol)
-    # usage: sr["M2_VS_1", :mass_flow] to get mass flow time series for load node "M2_VS_1"
-    options = setdiff(fieldnames(SimulationResults), [:load_labels])
-    if(s ∉ options && s != :load_labels_dict )
-        error("$(s): Invalid symbol for SimulationResults getindex. Valid symbols are: $(options)")
+    # Sump-specific fields
+    sump_syms = (:T_sump_f, :T_sump_b, :mass_flow_sump)
+    if s in sump_syms
+        haskey(sr.sump_labels, label) || error("Sump label \"$label\" not found in SimulationResults.")
+        idx = sr.sump_labels[label]
+        field_value = getproperty(sr, s)
+        isnothing(field_value) && return nothing
+        return field_value[:, idx]
+    end
+
+    # Load fields
+    options = setdiff(fieldnames(SimulationResults), [:load_labels, :sump_labels, :mass_flow_sump, :T_sump_f, :T_sump_b])
+    if(s ∉ options && s != :load_labels_dict)
+        error("$(s): Invalid symbol for SimulationResults getindex. Valid symbols are: $(options), or sump symbols: $(sump_syms)")
     end
     idx = sr.load_labels[label]  # get column index for the load label
     if isnothing(idx)
@@ -129,21 +165,25 @@ function Base.getindex(sr::SimulationResults, label::String, s::Symbol)
 end
 function Base.getindex(sr::SimulationResults, s::Symbol)
     # usage example: sr[:time] to get time vector
-    options = (fieldnames(SimulationResults)..., :load_labels_dict)
+    options = (fieldnames(SimulationResults)..., :load_labels_dict, :sump_labels_dict)
     if(s ∉ options)
         error("$(s): Invalid symbol for SimulationResults getindex. Valid symbols are: $(options)")
     end
-    if(s==:load_labels)
-        return keys(sr.load_labels)
-    elseif (s==:load_labels_dict)
+    if s == :load_labels
+        return collect(keys(sr.load_labels))
+    elseif s == :sump_labels
+        return collect(keys(sr.sump_labels))
+    elseif s == :load_labels_dict
         return sr.load_labels
+    elseif s == :sump_labels_dict
+        return sr.sump_labels
     end
     return getproperty(sr, s)
 end
 
 
 Base.length(sr::SimulationResults) = length(sr.time)
-Base.show(io::IO, sr::SimulationResults) = print(io, "SimulationResults with $(length(sr)) time steps and $(length(sr.load_labels)) load nodes.")
+Base.show(io::IO, sr::SimulationResults) = print(io, "SimulationResults with $(length(sr)) time steps, $(length(sr.load_labels)) load node(s) and $(length(sr.sump_labels)) sump node(s).")
 
 # ------------------------------------------------ #
 # SIMULATION FUNCTIONS
@@ -301,6 +341,9 @@ function run_simulation(
     num_loads        = length(network.load_labels)
     load_labels_cols = Dict(label => i for (i, label) in enumerate(network.load_labels))
 
+    num_sumps        = length(network.sump_labels)
+    sump_labels_cols = Dict(label => i for (i, label) in enumerate(network.sump_labels))
+
     clamped_loads = Set{String}()  # tracks loads where return T was clamped (for a single end-of-run warning)
 
     results_mass_flow_producer       = Vector{Float64}(undef, N)
@@ -310,6 +353,9 @@ function run_simulation(
     results_temperature_producer_in  = mode == :forward_only ? nothing : fill(NaN, N)
     results_temperature_load_out     = mode == :forward_only ? nothing : fill(NaN, N, num_loads)
     results_power_consumption        = mode ∈ (:forward_only, :backward_only) ? nothing : fill(NaN, N, num_loads)
+    results_mass_flow_sump           = Matrix{Float64}(undef, N, num_sumps)
+    results_T_sump_f                 = fill(NaN, N, num_sumps)
+    results_T_sump_b                 = mode == :forward_only ? nothing : fill(NaN, N, num_sumps)
 
     # ---- time loop ----
     for i in 1:N
@@ -329,18 +375,27 @@ function run_simulation(
         results_mass_flow_producer[i] = input.mass_flow
 
         # hydraulics (always)
-        steady_state_hydronynamics!(network, input.mass_flow)
+        steady_state_hydrodynamics!(network, input.mass_flow)
+
+        # record sump mass flows (always, after hydraulics)
+        for (label, col) in sump_labels_cols
+            results_mass_flow_sump[i, col] = network[label].common.mass_flow
+        end
 
         # return_plugs collects cooled load plugs to feed into the backward step
         return_plugs = Dict{String, Plug}()
 
         # forward thermal (all modes except :backward_only)
         if mode != :backward_only
-            output_plugs = time_step_thermal_dynamics_forward!(network, Δt, input.temperature, Tₐ)
+            sump_plugs_f = Dict{String, Plug}()
+            output_plugs = time_step_thermal_dynamics_forward!(network, Δt, i, input.temperature, Tₐ; sump_plugs=sump_plugs_f)
             for (load_label, plug) in output_plugs
                 col = load_labels_cols[load_label]
                 results_temperature_load_in[i, col] = plug.T
                 results_mass_flow_load[i, col]      = plug.m / Δt
+            end
+            for (label, col) in sump_labels_cols
+                haskey(sump_plugs_f, label) && (results_T_sump_f[i, col] = sump_plugs_f[label].T)
             end
             return_plugs = output_plugs
         else
@@ -398,8 +453,14 @@ function run_simulation(
 
         # backward thermal (all modes except :forward_only)
         if mode != :forward_only && !isempty(return_plugs)
-            incoming_plug = time_step_thermal_dynamics_backward!(network, Δt, return_plugs, Tₐ)
+            sump_plugs_b = !isnothing(results_T_sump_b) ? Dict{String, Plug}() : nothing
+            incoming_plug = time_step_thermal_dynamics_backward!(network, Δt, i, return_plugs, Tₐ; sump_plugs=sump_plugs_b)
             results_temperature_producer_in[i] = incoming_plug.T
+            if !isnothing(sump_plugs_b)
+                for (label, col) in sump_labels_cols
+                    haskey(sump_plugs_b, label) && (results_T_sump_b[i, col] = sump_plugs_b[label].T)
+                end
+            end
         end
     end
 
@@ -429,7 +490,12 @@ function run_simulation(
         T_producer_out     = results_temperature_producer_out,
         power_load         = results_power_consumption,
         power_producer     = power_producer,
-        load_labels_dict   = load_labels_cols
+        load_labels_dict   = load_labels_cols,
+        mass_flow_sump     = results_mass_flow_sump,
+        T_sump_f           = results_T_sump_f,
+        T_sump_b           = results_T_sump_b,
+        sump_labels_dict   = sump_labels_cols,
+        producer_label     = network.producer_label::String
     )
 end
 
@@ -442,7 +508,7 @@ end
 This performs a post-order traversal from leaves to root and sets, for each edge
 leading into a node, the sum of `m_rel` values required downstream.
 
-This is an internal step of [`steady_state_hydronynamics!`](@ref).
+This is an internal step of [`steady_state_hydrodynamics!`](@ref).
 """
 function set_relative_mass_flows!(nw::Network)
     # iterate over nodes from leaves to root and set on each edge relative mass flow coefficient m_rel
@@ -477,10 +543,10 @@ function set_relative_mass_flows!(nw::Network)
             if(outdegree(nw, node) == 0) # leaf node
                 @assert nw[node] isa LoadNode
                 nw[parent_node, node].m_rel = nw[node].m_rel # copy m_rel from LoadNode to the edge leading to it
-                    
-            elseif nw[node] isa JunctionNode # visiting for second time, so all childer have been processed
+
+            elseif nw[node] isa JunctionNode || nw[node] isa SumpNode # visiting for second time, so all children have been processed
                 m_rel_sum = sum(nw[node, child].m_rel for child in outneighbors(nw, node))::Float64
-                nw[parent_node, node].m_rel = m_rel_sum # set m_rel on the edge leading to this junction
+                nw[parent_node, node].m_rel = m_rel_sum # set m_rel on the edge leading to this junction/sump
             end
 
         else
@@ -544,7 +610,7 @@ Internally it:
 1. computes relative flow splits (`set_relative_mass_flows!`),
 2. assigns absolute mass flows on edges and nodes (`set_absolute_mass_flows!`).
 """
-function steady_state_hydronynamics!(nw::Network, mass_flow_source::Float64)
+function steady_state_hydrodynamics!(nw::Network, mass_flow_source::Float64)
     set_relative_mass_flows!(nw)
     set_absolute_mass_flows!(nw, mass_flow_source)
 end
@@ -574,7 +640,7 @@ function fill_pipes_with_initial_temperature!(nw::Network, temperature_f::Float6
     end
 end
 
-function time_step_thermal_dynamics_forward!(nw::Network, Δt::Float64, temperature_source::Float64, ambient_temperature::Union{Float64, Nothing}=nothing)::Dict{String, Plug}
+function time_step_thermal_dynamics_forward!(nw::Network, Δt::Float64, step::Int, temperature_source::Float64, ambient_temperature::Union{Float64, Nothing}=nothing; sump_plugs::Union{Dict{String,Plug}, Nothing}=nothing)::Dict{String, Plug}
     # simulate thermal dynamics of the network for one time step Δt
     # update temperatures in plugs in all pipes based on heat losses and advection
 
@@ -587,7 +653,7 @@ function time_step_thermal_dynamics_forward!(nw::Network, Δt::Float64, temperat
     source_edges = [nw[root, n] for n in outneighbors(nw, root)]
     plug_masses = [edge.mass_flow * Δt for edge in source_edges] # integrate mass flow from source edge to get mass in kg
     for (source_edge, plug_mass) in zip(source_edges, plug_masses)
-        new_plug = Plug(temperature_source, plug_mass) # plug entering the first edge
+        new_plug = Plug(temperature_source, plug_mass, step) # plug entering the first edge; k=step
         push_in_water_plugs_forward!(source_edge, [new_plug])
     end
 
@@ -606,10 +672,15 @@ function time_step_thermal_dynamics_forward!(nw::Network, Δt::Float64, temperat
             continue
         end
         parent_edge = nw[inneighbors(nw, node)[1], node] # assume there is only one parent edge
-        
+
         # collect plugs exiting from parent edge
         plugs = collect_exiting_water_plugs!(parent_edge.plugs_f, parent_edge.mass_flow, Δt)
-        
+
+        # apply heat loss based on each plug's transit time τ = (step - plug.k) · Δt
+        if !isnothing(ambient_temperature) && parent_edge isa InsulatedPipe
+            apply_exit_heat_loss!(plugs, inner_diameter(parent_edge), heat_resistance_forward(parent_edge), step, Δt, ambient_temperature)
+        end
+
         if(outdegree(nw, node) == 0) # leaf node
             # log exiting plugs for this load node (average them weighting by mass)
             output_plugs[node] = combine_plugs(plugs)
@@ -621,10 +692,15 @@ function time_step_thermal_dynamics_forward!(nw::Network, Δt::Float64, temperat
             end
         end
 
+        # record supply temperature at sump nodes
+        if !isnothing(sump_plugs) && nw[node] isa SumpNode
+            sump_plugs[node] = combine_plugs(plugs)
+        end
+
         # devide each plug into child edges according to mass flow in each edge
         children = outneighbors(nw, node)
         total_mass_flow = sum(nw[node, child].mass_flow for child in children)
-        
+
         if(total_mass_flow == 0.0 && !isempty(plugs))
             error("Node $(nw[node].common.info) has zero total mass flow to its children. Cannot distribute plugs!")
         end
@@ -635,7 +711,7 @@ function time_step_thermal_dynamics_forward!(nw::Network, Δt::Float64, temperat
             for p in plugs
                 next_mass = p.m * mass_flow_edge / total_mass_flow
                 if next_mass > 0.0
-                    next_plug = Plug(p.T, next_mass)
+                    next_plug = Plug(p.T, next_mass, step) # k=step: plug enters a new pipe this step
                     push!(next_pipe_plugs, next_plug)
                 end
             end
@@ -644,15 +720,10 @@ function time_step_thermal_dynamics_forward!(nw::Network, Δt::Float64, temperat
         end
     end
 
-    # cool remaining plugs in the network due to heat loss
-    if ambient_temperature !== nothing
-        heat_loss_forward!(nw, ambient_temperature, Δt)
-    end
-
     return output_plugs
 end
 
-function time_step_thermal_dynamics_backward!(nw::Network, Δt::Float64, incoming_plugs::Dict{String, Plug}, ambient_temperature::Union{Float64, Nothing}=nothing)::Union{Plug, Nothing}
+function time_step_thermal_dynamics_backward!(nw::Network, Δt::Float64, step::Int, incoming_plugs::Dict{String, Plug}, ambient_temperature::Union{Float64, Nothing}=nothing; sump_plugs::Union{Dict{String,Plug}, Nothing}=nothing)::Union{Plug, Nothing}
     # simulate thermal dynamics of the network for one time step Δt
     # fill back in the network the cooled plugs from load nodes and propagate up to the producer node
     # update temperatures in plugs in all pipes based on heat losses and advection
@@ -676,22 +747,35 @@ function time_step_thermal_dynamics_backward!(nw::Network, Δt::Float64, incomin
                 @assert nw[node] isa LoadNode
                 parent = inneighbors(nw, node)[1] # assume there is only one parent
                 parent_edge = nw[parent, node]
-                push_in_water_plugs_backward!(parent_edge, [incoming_plugs[node]]) # push the cooled plug back into the parent edge
-                    
-            else # visiting for second time, so all childer have been processed
+                plug = incoming_plugs[node]
+                plug.k = step  # plug enters the backward pipe this step
+                push_in_water_plugs_backward!(parent_edge, [plug])
+
+            else # visiting for second time, so all children have been processed
                 children_plug_vectors = Vector{Vector{Plug}}() # collect plugs from child edges to merge them
-                # collect plugs exiting from childs edges
+                # collect plugs exiting from child edges and apply heat loss
                 for child in outneighbors(nw, node)
                     edge = nw[node, child]
                     plugs = collect_exiting_water_plugs!(edge.plugs_b, edge.mass_flow, Δt)
+                    # apply heat loss based on each plug's transit time τ = (step - plug.k) · Δt
+                    if !isnothing(ambient_temperature) && edge isa InsulatedPipe
+                        apply_exit_heat_loss!(plugs, inner_diameter(edge), heat_resistance_backward(edge), step, Δt, ambient_temperature)
+                    end
                     push!(children_plug_vectors, plugs)
                 end
                 # combine plugs from all child edges
                 merged = merge_water_plug_vectors!(children_plug_vectors)
+                # record return temperature at sump nodes
+                if !isnothing(sump_plugs) && nw[node] isa SumpNode
+                    sump_plugs[node] = combine_plugs(merged)
+                end
                 # push merged plugs back to parent edge
                 if node != root
                     parent = inneighbors(nw, node)[1] # assume there is only one parent
                     parent_edge = nw[parent, node]
+                    for p in merged
+                        p.k = step  # plug enters the parent backward pipe this step
+                    end
                     push_in_water_plugs_backward!(parent_edge, merged)
                 else
                     # at the root, we can return the combined plug as output of backward simulation
@@ -709,11 +793,6 @@ function time_step_thermal_dynamics_backward!(nw::Network, Δt::Float64, incomin
                 push!(stack, (child, false))
             end
         end
-    end
-
-    # cool remaining plugs in the network due to heat loss
-    if !isnothing(ambient_temperature)
-        heat_loss_backward!(nw, ambient_temperature, Δt)
     end
 
     return output_plug
@@ -737,7 +816,7 @@ function collect_exiting_water_plugs!(plugs::Vector{Plug}, mass_flow::Float64, �
         if mass_accumulated + p.m > mass_exited
             # only part of the plug exits
             remaining_mass = mass_exited - mass_accumulated
-            exiting_plug = Plug(p.T, remaining_mass)
+            exiting_plug = Plug(p.T, remaining_mass, p.k)
             push!(exited_plugs, exiting_plug)
             p.m -= remaining_mass
             pushfirst!(plugs, p) # put the remaining part of the plug back to the front of the queue
@@ -805,10 +884,11 @@ function combine_plugs(plugs::Vector{Plug})::Plug
     @assert !isempty(plugs)
     total_mass = sum(p.m for p in plugs)
     if total_mass == 0.0
-        return Plug(25.0, 0.0) # default temperature for zero mass
+        return Plug(25.0, 0.0, 0) # default temperature for zero mass
     end
     avg_temp = sum(p.T * p.m for p in plugs) / total_mass
-    return Plug(avg_temp, total_mass)
+    avg_k    = round(Int, sum(p.k * p.m for p in plugs) / total_mass)
+    return Plug(avg_temp, total_mass, avg_k)
 end
 
 """Set the relative mass-flow coefficient for one load node."""
@@ -859,44 +939,18 @@ function set_load_params!(nw::Network, params_dict::Dict{String, <:AbstractVecto
     end
 end
 
-function heat_loss_forward!(e::InsulatedPipe, T_a::Float64, Δt::Float64)
-    # compute heat loss in the pipe and cool the plugs accordingly
-    ρ = WATER_DENSITY  # density in kg/m^3
-    cₚ = WATER_SPECIFIC_HEAT  # specific heat capacity in J/(kg·K)
-    for p in e.plugs_f
-        A = π * (inner_diameter(e)/2)^2  # surface area in m^2
-        T_next = T_a + (p.T - T_a) * exp(- (Δt) / (ρ * cₚ * A * heat_resistance_forward(e)))
-        p.T = T_next
-    end
-end
-
-function heat_loss_forward!(nw::Network, ambient_temperature::Float64, Δt::Float64)
-    # compute heat loss in all pipes of the network and cool the plugs accordingly
-    for e in edges(nw.mg)
-        edge = nw[e.src, e.dst]
-        if edge isa InsulatedPipe
-            heat_loss_forward!(edge, ambient_temperature, Δt)
-        end
-    end
-end
-
-function heat_loss_backward!(e::InsulatedPipe, T_a::Float64, Δt::Float64)
-    # compute heat loss in the pipe and cool the plugs accordingly
-    ρ = WATER_DENSITY  # density in kg/m^3
-    cₚ = WATER_SPECIFIC_HEAT  # specific heat capacity in J/(kg·K)
-    for p in e.plugs_b
-        A = π * (inner_diameter(e)/2)^2  # surface area in m^2
-        T_next = T_a + (p.T - T_a) * exp(- (Δt) / (ρ * cₚ * A * heat_resistance_backward(e)))
-        p.T = T_next
-    end
-end
-
-function heat_loss_backward!(nw::Network, ambient_temperature::Float64, Δt::Float64)
-    # compute heat loss in all pipes of the network and cool the plugs accordingly
-    for e in edges(nw.mg)
-        edge = nw[e.src, e.dst]
-        if edge isa InsulatedPipe
-            heat_loss_backward!(edge, ambient_temperature, Δt)
+# Apply heat loss to a vector of plugs exiting an InsulatedPipe.
+# τ = (step - plug.k) * Δt is the time the plug spent in the pipe.
+# τ_c = ρ·cₚ·A·R is the thermal time constant of the pipe [s].
+function apply_exit_heat_loss!(plugs::Vector{Plug}, d::Float64, R::Float64, step::Int, Δt::Float64, T_a::Float64)
+    ρ  = WATER_DENSITY
+    cₚ = WATER_SPECIFIC_HEAT
+    A  = π * (d / 2)^2
+    τ_c = ρ * cₚ * A * R
+    for p in plugs
+        τ = (step - p.k) * Δt
+        if τ > 0.0
+            p.T = T_a + (p.T - T_a) * exp(-τ / τ_c)
         end
     end
 end
@@ -1029,18 +1083,19 @@ It performs:
 3. backward (return) advection back to the producer.
 
 # Arguments
-- `nw::Network`: the network (must have steady-state mass flows already computed, e.g. via [`steady_state_hydronynamics!`](@ref)).
+- `nw::Network`: the network (must have steady-state mass flows already computed, e.g. via [`steady_state_hydrodynamics!`](@ref)).
 - `Δt::Float64`: time step in seconds.
 - `input::ProducerOutput`: producer setpoints for this step.
 
 # Keyword Arguments
 - `ambient_temperature`: outdoor temperature in °C, or `nothing`. When `nothing`, load power consumption is skipped (loads don't cool the water) and pipe heat losses are not applied.
+- `step`: simulation step counter used to compute each plug's transit time `τ = (step - plug.k) · Δt` for heat loss. Defaults to `1`. When calling this function in a manual stepping loop, pass the iteration index so that heat loss is computed correctly.
 
 # Returns
 - `(output_plugs, incoming_plug)` where `output_plugs` maps load labels to their inlet plug, and `incoming_plug` represents the return temperature entering the producer.
 """
-function time_step_thermal_dynamics!(nw::Network, Δt::Float64, input::ProducerOutput; ambient_temperature::Union{Float64, Nothing}=nothing)
-    output_plugs = time_step_thermal_dynamics_forward!(nw, Δt, input.temperature, ambient_temperature)
+function time_step_thermal_dynamics!(nw::Network, Δt::Float64, input::ProducerOutput; ambient_temperature::Union{Float64, Nothing}=nothing, step::Int=1)
+    output_plugs = time_step_thermal_dynamics_forward!(nw, Δt, step, input.temperature, ambient_temperature)
 
     if !isnothing(ambient_temperature)
         Tₐ_load = ambient_temperature
@@ -1054,6 +1109,6 @@ function time_step_thermal_dynamics!(nw::Network, Δt::Float64, input::ProducerO
         end
     end
 
-    incoming_plug = time_step_thermal_dynamics_backward!(nw, Δt, output_plugs, ambient_temperature)
+    incoming_plug = time_step_thermal_dynamics_backward!(nw, Δt, step, output_plugs, ambient_temperature)
     return output_plugs, incoming_plug
 end

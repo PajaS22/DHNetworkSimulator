@@ -432,4 +432,131 @@
         @test length(results) == length(t2)
     end
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # SumpNode
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @testset "SumpNode in network" begin
+        # Topology: producer → (sump) → junction → load1
+        #                                         → load2
+        # The sump sits on the main supply before the branch.
+        nw = Network()
+        nw["producer"] = ProducerNode((0.0, 0.0))
+        nw["sump"]     = SumpNode("S1", (25.0, 0.0))
+        nw["junction"] = JunctionNode((50.0, 0.0))
+        nw["load1"]    = LoadNode("L1", (100.0,  50.0), 1.0)
+        nw["load2"]    = LoadNode("L2", (100.0, -50.0), 2.0)
+        nw["producer", "sump"]     = InsulatedPipe(25)
+        nw["sump",     "junction"] = InsulatedPipe(25)
+        nw["junction", "load1"]    = InsulatedPipe(50)
+        nw["junction", "load2"]    = InsulatedPipe(50)
+
+        # sump_labels should be populated
+        @test "sump" ∈ nw.sump_labels
+        @test length(nw.sump_labels) == 1
+
+        # replacing a sump with a junction removes it from sump_labels
+        nw2 = Network()
+        nw2["producer"] = ProducerNode()
+        nw2["sump"]     = SumpNode("S")
+        nw2["load"]     = LoadNode("L", 1.0)
+        nw2["producer", "sump"] = InsulatedPipe(50)
+        nw2["sump", "load"]     = InsulatedPipe(50)
+        @test "sump" ∈ nw2.sump_labels
+        nw2["sump"] = JunctionNode()  # replace with junction
+        @test "sump" ∉ nw2.sump_labels
+
+        # removing a sump node removes it from sump_labels
+        nw3 = Network()
+        nw3["producer"] = ProducerNode()
+        nw3["sump"]     = SumpNode()
+        nw3["load"]     = LoadNode("L", 1.0)
+        nw3["producer", "sump"] = InsulatedPipe(50)
+        nw3["sump", "load"]     = InsulatedPipe(50)
+        @test "sump" ∈ nw3.sump_labels
+        rem_node!(nw3, "sump")
+        @test "sump" ∉ nw3.sump_labels
+    end
+
+    @testset "SumpNode in SimulationResults" begin
+        # Topology: producer → sump → junction → load1 (m_rel=1)
+        #                                       → load2 (m_rel=2)
+        nw = Network()
+        nw["producer"] = ProducerNode((0.0, 0.0))
+        nw["sump"]     = SumpNode("S1", (25.0, 0.0))
+        nw["junction"] = JunctionNode((50.0, 0.0))
+        nw["load1"]    = LoadNode("L1", (100.0,  50.0), 1.0)
+        nw["load2"]    = LoadNode("L2", (100.0, -50.0), 2.0)
+        nw["producer", "sump"]     = InsulatedPipe(25)
+        nw["sump",     "junction"] = InsulatedPipe(25)
+        nw["junction", "load1"]    = InsulatedPipe(50)
+        nw["junction", "load2"]    = InsulatedPipe(50)
+
+        sim_t  = float.(collect(range(0, stop=60*60, step=60)))
+        Nsteps = length(sim_t)
+        policy = (t, Ta, Tb) -> ProducerOutput(mass_flow=6.0, temperature=80.0)
+        sr = run_simulation(nw, sim_t, policy)
+
+        # sump labels are present
+        @test "sump" ∈ sr[:sump_labels]
+        @test sr[:sump_labels_dict] isa Dict{String, Int}
+
+        # sump matrices have correct size
+        @test size(sr[:mass_flow_sump]) == (Nsteps, 1)
+        @test size(sr[:T_sump_f])       == (Nsteps, 1)
+        @test size(sr[:T_sump_b])       == (Nsteps, 1)
+
+        # convenience indexing
+        mf   = sr["sump", :mass_flow_sump]
+        T_f  = sr["sump", :T_sump_f]
+        T_b  = sr["sump", :T_sump_b]
+        @test length(mf)  == Nsteps
+        @test length(T_f) == Nsteps
+        @test length(T_b) == Nsteps
+
+        # mass flow at sump must equal total producer mass flow (single path before branch)
+        @test all(isapprox.(mf, 6.0; atol=1e-10))
+
+        # forward temperature should be bounded (between initial T and supply T)
+        @test all(T_f[2:end] .>= 25.0)   # above initial pipe temperature
+        @test all(T_f[2:end] .<= 80.0)   # at most the producer supply temperature
+
+        # return temperature should be lower than supply
+        @test all(T_b[2:end] .>= 25.0)
+        @test all(T_b[2:end] .<= 80.0)
+    end
+
+    @testset "SumpNode in forward_only mode" begin
+        nw = Network()
+        nw["producer"] = ProducerNode()
+        nw["sump"]     = SumpNode()
+        nw["load"]     = LoadNode("L", 1.0)
+        nw["producer", "sump"] = InsulatedPipe(50)
+        nw["sump",     "load"] = InsulatedPipe(50)
+
+        sim_t = float.(collect(0:60.0:3600.0))
+        N     = length(sim_t)
+        policy = (t, Ta) -> ProducerOutput(mass_flow=5.0, temperature=75.0)
+        sr = run_simulation(nw, sim_t, policy; mode=:forward_only)
+
+        # T_sump_b is Nothing in forward_only mode
+        @test isnothing(sr[:T_sump_b])
+        @test isnothing(sr["sump", :T_sump_b])
+
+        # T_sump_f is recorded
+        @test size(sr[:T_sump_f]) == (N, 1)
+        @test !all(isnan, sr["sump", :T_sump_f])
+    end
+
+    @testset "SimulationResults show and length with sumps" begin
+        nw = make_network()  # no sumps
+        sim_t  = float.(collect(0:60.0:3600.0))
+        policy = (t, Ta, Tb) -> ProducerOutput(mass_flow=6.0, temperature=80.0)
+        sr = run_simulation(nw, sim_t, policy)
+
+        @test length(sr.sump_labels) == 0
+        @test size(sr[:mass_flow_sump]) == (length(sim_t), 0)
+        @test contains(string(sr), "0 sump node(s)")
+    end
+
 end

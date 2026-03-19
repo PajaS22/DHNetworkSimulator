@@ -20,6 +20,7 @@ DHNetworkSimulator.NodeCommon
 
 DHNetworkSimulator.ProducerNode
 DHNetworkSimulator.JunctionNode
+DHNetworkSimulator.SumpNode
 DHNetworkSimulator.LoadNode
 DHNetworkSimulator.EmptyNode
 
@@ -47,6 +48,7 @@ DHNetworkSimulator.fill_node_positions!
 DHNetworkSimulator.fill_load_specs!
 DHNetworkSimulator.name_nodes!
 DHNetworkSimulator.identify_producer_and_loads!
+DHNetworkSimulator.identify_sumps!
 ```
 
 ```@docs
@@ -75,6 +77,9 @@ DHNetworkSimulator.inneighbors
 
 ```@docs
 DHNetworkSimulator.visualize_graph!
+DHNetworkSimulator.compute_zero_pipe_load_positions
+DHNetworkSimulator.DEFAULT_ZERO_PIPE_K_ATTRACTION
+DHNetworkSimulator.DEFAULT_ZERO_PIPE_K_REPULSION
 DHNetworkSimulator.NodeHighlight
 DHNetworkSimulator.highlight_nodes!
 DHNetworkSimulator.reset_highlights!
@@ -91,6 +96,7 @@ DHNetworkSimulator.print_edges
 DHNetworkSimulator.pipe_length
 Base.length(::DHNetworkSimulator.InsulatedPipe)
 DHNetworkSimulator.inner_diameter
+DHNetworkSimulator.volume
 DHNetworkSimulator.heat_resistance_forward
 DHNetworkSimulator.heat_resistance_backward
 DHNetworkSimulator.mass_flow
@@ -112,6 +118,7 @@ DHNetworkSimulator.merge_water_plug_vectors!
 
 ```@docs
 DHNetworkSimulator.polynomial_load
+DHNetworkSimulator.hockey_load
 DHNetworkSimulator.validate_load_spec
 DHNetworkSimulator.set_load_fn!
 ```
@@ -122,7 +129,7 @@ DHNetworkSimulator.set_load_fn!
 DHNetworkSimulator.check_network!
 DHNetworkSimulator.set_relative_mass_flows!
 DHNetworkSimulator.set_absolute_mass_flows!
-DHNetworkSimulator.steady_state_hydronynamics!
+DHNetworkSimulator.steady_state_hydrodynamics!
 DHNetworkSimulator.fill_pipes_with_initial_temperature!
 DHNetworkSimulator.time_step_thermal_dynamics!
 DHNetworkSimulator.set_load_params!
@@ -135,6 +142,13 @@ DHNetworkSimulator.run_simulation
 
 ```@docs
 DHNetworkSimulator.plot_simulation_results
+```
+
+## Network analysis
+
+```@docs
+DHNetworkSimulator.producer_loads_volumes
+DHNetworkSimulator.producer_loads_delays
 ```
 
 ## External helpers

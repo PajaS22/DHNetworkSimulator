@@ -9,6 +9,7 @@ Concrete node types describe the *role* of a vertex in the directed network:
 
 - `ProducerNode`: heat source (root)
 - `JunctionNode`: branching/merging point
+- `SumpNode`: measurement point (behaves like a junction, but recorded in `SimulationResults`)
 - `LoadNode`: heat consumer (typically a leaf)
 - `EmptyNode`: placeholder used during construction
 
@@ -44,7 +45,7 @@ end
 
 # Notes
 - Many fields use `missing` to represent “not initialized / not computed yet”.
-- During simulation, mass flows are usually filled by `steady_state_hydronynamics!`.
+- During simulation, mass flows are usually filled by `steady_state_hydrodynamics!`.
 
 # Constructors
 - `NodeCommon(info::String)`
@@ -78,6 +79,34 @@ struct JunctionNode <: NodeType
     common::NodeCommon
 end
 
+"""DH network node representing a sump — a measurement point in the network.
+
+A `SumpNode` behaves identically to a [`JunctionNode`](@ref) during simulation: it routes
+flow between pipes without consuming or producing heat. The difference is that sumps are
+*tracked* — supply temperature, return temperature, and total mass flow at every sump are
+recorded in [`SimulationResults`](@ref) at each time step.
+
+Use sumps wherever you want to observe network conditions at an intermediate node without
+disturbing the topology.
+
+```julia
+struct SumpNode <: NodeType
+    common::NodeCommon
+end
+```
+
+# Constructors
+- `SumpNode(info::String)`
+- `SumpNode(info::String, position::Tuple{Float64, Float64})`
+- `SumpNode(position::Tuple{Float64, Float64})`
+- `SumpNode()`
+
+See also: [`JunctionNode`](@ref), [`SimulationResults`](@ref).
+"""
+struct SumpNode <: NodeType
+    common::NodeCommon
+end
+
 """Built-in power demand function: polynomial in ambient temperature.
 
 Evaluates ``P(T_a) = \\sum_{i} params_i \\cdot T_a^{i-1}`` and returns power in **kW**.
@@ -92,6 +121,37 @@ The function returns zero for ambient temperatures above 30 °C to prevent unrea
 See also: [`LoadSpec`](@ref).
 """
 polynomial_load(params::Vector{Float64}, T_a::Float64) = T_a < 30 ? sum(params[i] * T_a^(i-1) for i in eachindex(params)) : 0
+
+"""Built-in power demand function: two-part (hockey-stick) linear model.
+
+Models heating demand as a piecewise-linear function of ambient temperature:
+
+```
+P(T_a) = a + b·(T_b − T_a)   if T_a ≤ T_b   (heating regime)
+P(T_a) = a                    if T_a >  T_b   (base-load regime)
+```
+
+The result is clamped to zero from below so it never goes negative.
+
+# Parameters (`params = [a, b, T_b]`)
+- `a`  — base load [kW]: the constant demand present at all temperatures.
+- `b`  — heating slope [kW/°C]: additional load per degree below `T_b`.
+- `T_b` — balance-point temperature [°C]: above this the load is flat at `a`.
+
+# Example
+```julia
+# 50 kW base load, 5 kW per °C below 15 °C
+spec = LoadSpec(hockey_load, [50.0, 5.0, 15.0])
+```
+
+See also: [`LoadSpec`](@ref), [`polynomial_load`](@ref).
+"""
+function hockey_load(params::Vector{Float64}, T_a::Float64)
+    a, b, T_b = params[1], params[2], params[3]
+    @assert b >= 0 "Heating slope b must be non-negative"
+    @assert a >= 0 "Base load a must be non-negative"
+    return max(0.0, T_a <= T_b ? a + b * (T_b - T_a) : a)
+end
 
 """Load specification pairing a power demand function with its parameters.
 
@@ -110,7 +170,15 @@ end
 - `fn::Function`: demand function with signature `fn(params::Vector{Float64}, T_a::Float64) -> Float64` (kW).
 - `params::Vector{Float64}`: current parameters passed to `fn`.
 
-See also: [`polynomial_load`](@ref), [`set_load_fn!`](@ref), [`set_load_params!`](@ref), [`validate_load_spec`](@ref).
+See also: [`polynomial_load`](@ref), [`hockey_load`](@ref), [`set_load_fn!`](@ref), [`set_load_params!`](@ref), [`validate_load_spec`](@ref).
+
+# Constructors
+- `LoadSpec()`: default `polynomial_load` with `DEFAULT_LOAD_PARAMS`.
+- `LoadSpec(params::Vector{<:Real})`: `polynomial_load` with custom parameter vector.
+- `LoadSpec(p₀, p₁, ...)`: `polynomial_load` with parameters given as individual numbers.
+- `LoadSpec(fn, params::Vector{<:Real})`: explicit function + parameter vector (converts element type).
+- `LoadSpec(fn, p₀, p₁, ...)`: explicit function with parameters as individual numbers.
+- `LoadSpec(hockey_load; a, b, T_b)`: keyword form for `hockey_load` — base load, slope, balance-point temperature.
 """
 mutable struct LoadSpec
     fn::Function
@@ -139,6 +207,7 @@ end
 # Constructors
 - `LoadNode(; load=LoadSpec(polynomial_load, [...]))`
 - `LoadNode(info::String; load=...)`
+- `LoadNode(info::String, m_rel::Float64; load=...)`: set `m_rel` without specifying a position.
 - `LoadNode(position::Tuple{Float64, Float64}; load=...)`
 - `LoadNode(info::String, position::Tuple{Float64, Float64}; load=...)`
 - `LoadNode(info::String, position::Tuple{Float64, Float64}, m_rel::Float64; load=...)`: set `m_rel` directly at construction.
@@ -196,13 +265,24 @@ Plugs are advected through pipes during time stepping and may be split/merged.
 mutable struct Plug
     T::Float64  # Temperature at the plug [°C]
     m::Float64  # mass of the plug [kg]
+    k::Int      # simulation step when the plug entered the current pipe (0 = initial / not yet in a pipe)
 end
 ```
+
+`k` is set automatically when a plug is pushed into a pipe during simulation. It is used together
+with the simulation time step `Δt` to compute the transit time `τ = (step - k) · Δt`, which
+determines how much heat the plug loses to the surroundings.
 """
 mutable struct Plug
     T::Float64  # Temperature at the plug [°C]
     m::Float64  # mass of the plug [kg]
+    k::Int      # simulation step when the plug entered the current pipe (0 = initial / not yet in a pipe)
 end
+
+"""    Plug(T, m)
+Convenience constructor — creates a plug with `k = 0` (not yet in a pipe).
+"""
+Plug(T::Float64, m::Float64) = Plug(T, m, 0)
 
 """Physical parameters of a pipe (constant during simulation).
 
@@ -252,7 +332,7 @@ end
 
 # Fields
 - `physical_params`: geometry and heat-loss parameters (see `PipeParams`).
-- `mass_flow`: mass flow in kg/s. `missing` until computed by `steady_state_hydronynamics!`.
+- `mass_flow`: mass flow in kg/s. `missing` until computed by `steady_state_hydrodynamics!`.
 - `m_rel`: relative flow coefficient used for splitting at junctions. `missing` until computed.
 - `plugs_f`: plug queue for the forward (supply) direction.
 - `plugs_b`: plug queue for the backward (return) direction.
@@ -307,10 +387,11 @@ NeighborDicts() = NeighborDicts(Dict{String, Vector{String}}(), Dict{String, Vec
 """Network type representing a district heating network.
 ```julia
 mutable struct Network{T<:Integer} <: AbstractGraph{T}
-    mg::MetaGraph                               # MetaGraph from MetaGraphs.jl, it contains the network 
+    mg::MetaGraph                               # MetaGraph from MetaGraphs.jl, it contains the network
                                                     structure and node and edge data
     producer_label::Union{Nothing, String}      # Label of the producer node
     load_labels::Set{String}                    # Labels of the consumer nodes
+    sump_labels::Set{String}                    # Labels of the sump nodes
     neighbor_dicts::NeighborDicts               # Mappings to inneghbors and outneighbors for efficient access during simulation
 end
 ```
@@ -319,6 +400,7 @@ end
 - `mg`: a MetaGraphsNext `MetaGraph` that contains the directed topology and stores node/edge data.
 - `producer_label`: label of the single producer node (or `nothing` if not yet set).
 - `load_labels`: a set of labels for load nodes.
+- `sump_labels`: a set of labels for sump nodes.
 - `neighbor_dicts`: cached neighbor lists used to reduce allocations during simulation.
 
 # Constructors
@@ -332,10 +414,11 @@ mutable struct Network{T<:Integer} <: AbstractGraph{T}
     mg::MetaGraph                               # MetaGraph from MetaGraphs.jl, it contains the network structure and node and edge data
     producer_label::Union{Nothing, String}      # Label of the producer node
     load_labels::Set{String}                    # Labels of the consumer nodes
+    sump_labels::Set{String}                    # Labels of the sump nodes
     neighbor_dicts::NeighborDicts               # Mappings to inneghbors and outneighbors for efficient access during simulation
-    
-    function Network(mg::MetaGraph, producer_label, load_labels, neighbor_dicts) 
-        network = new{eltype(vertices(mg))}(mg, producer_label, load_labels, neighbor_dicts)
+
+    function Network(mg::MetaGraph, producer_label, load_labels, sump_labels, neighbor_dicts)
+        network = new{eltype(vertices(mg))}(mg, producer_label, load_labels, sump_labels, neighbor_dicts)
         check_and_update_neighbor_dicts!(network) # upon creation, construct the neighbor dicts
         return network
     end
@@ -353,7 +436,7 @@ function Network()
         vertex_data_type=NodeType,
         edge_data_type=EdgeType
     )
-    return Network(mg, nothing, Set{String}(), NeighborDicts())
+    return Network(mg, nothing, Set{String}(), Set{String}(), NeighborDicts())
 end
 
 # ------------------------------------------------- #
@@ -431,13 +514,27 @@ JunctionNode(info::String, position::Tuple{Float64, Float64}) = JunctionNode(Nod
 JunctionNode(position::Tuple{Float64, Float64}) = JunctionNode("junction", position)
 JunctionNode() = JunctionNode("junction")
 
+# SUMP NODE CONSTRUCTORS
+SumpNode(info::String) = SumpNode(NodeCommon(info))
+SumpNode(info::String, position::Tuple{Float64, Float64}) = SumpNode(NodeCommon(info, position))
+SumpNode(position::Tuple{Float64, Float64}) = SumpNode("sump", position)
+SumpNode() = SumpNode("sump")
+
 # LOAD NODE CONSTRUCTORS
 const DEFAULT_LOAD_PARAMS = [540.0, -36.0, 0.6]  # default quadratic polynomial coefficients (kW vs °C)
-LoadSpec() = LoadSpec(polynomial_load, copy(DEFAULT_LOAD_PARAMS)) # default LoadSpec with the polynomial_load function and default parameters
+LoadSpec() = LoadSpec(polynomial_load, copy(DEFAULT_LOAD_PARAMS))
+LoadSpec(params::Vector{<:Real})       = LoadSpec(polynomial_load, Vector{Float64}(params))
+LoadSpec(params::Real...)              = LoadSpec(polynomial_load, collect(Float64, params))
+LoadSpec(fn::Function, params::Vector{<:Real}) = LoadSpec(fn, Vector{Float64}(params))
+LoadSpec(fn::Function, params::Real...) = LoadSpec(fn, collect(Float64, params))
+LoadSpec(::typeof(hockey_load); a::Real, b::Real, T_b::Real) = LoadSpec(hockey_load, Float64(a), Float64(b), Float64(T_b))
+
 LoadNode(info::String; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info), load, missing)
+LoadNode(info::String, m_rel::Float64; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info), load, m_rel)
 LoadNode(info::String, position::Tuple{Float64, Float64}; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info, position), load, missing)
 LoadNode(info::String, position::Tuple{Float64, Float64}, load::LoadSpec) = LoadNode(NodeCommon(info, position), load, missing)
 LoadNode(info::String, position::Tuple{Float64, Float64}, m_rel::Float64; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info, position), load, m_rel)
+LoadNode(info::String, ::Missing; load::LoadSpec=LoadSpec()) = LoadNode(info; load=load)  # position missing, use keyword form
 LoadNode(position::Tuple{Float64, Float64}; load::LoadSpec=LoadSpec()) = LoadNode("load", position; load=load)
 LoadNode(; load::LoadSpec=LoadSpec()) = LoadNode("load"; load=load)
 

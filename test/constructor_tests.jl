@@ -143,6 +143,26 @@
         @test p4.common.position == (1.0, 2.0)
     end
 
+    @testset "SumpNode constructors" begin
+        s1 = SumpNode()
+        @test s1.common.info == "sump"
+        @test ismissing(s1.common.position)
+
+        s2 = SumpNode("S2")
+        @test s2.common.info == "S2"
+
+        s3 = SumpNode((7.0, 8.0))
+        @test s3.common.info == "sump"
+        @test s3.common.position == (7.0, 8.0)
+
+        s4 = SumpNode("main sump", (1.0, 2.0))
+        @test s4.common.info == "main sump"
+        @test s4.common.position == (1.0, 2.0)
+
+        @test SumpNode() isa NodeType
+        @test SumpNode() isa SumpNode
+    end
+
     @testset "LoadNode constructors" begin
         l1 = LoadNode()
         @test l1.common.info == "load"

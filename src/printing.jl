@@ -20,6 +20,9 @@ function Base.show(io::IO, nw::Network)
     else
         println(io, " Load nodes: not set")
     end
+    if !ismissing(nw.sump_labels)
+        println(io, " Sump nodes ($(length(nw.sump_labels))): {", join(nw.sump_labels, ", "), "}")
+    end
     println(io, " Neighbor dicts need rebuild: ", nw.neighbor_dicts.need_rebuild)
     # print nodes
     println(io, "---")
@@ -64,6 +67,13 @@ end
 # Junction node (with details)
 function Base.show(io::IO, node::JunctionNode)
     summary = "Junction Node, "
+    summary *= string_node_common(node.common)
+    println(io, summary)
+end
+
+# Sump node (with details)
+function Base.show(io::IO, node::SumpNode)
+    summary = "Sump Node, "
     summary *= string_node_common(node.common)
     println(io, summary)
 end

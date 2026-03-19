@@ -16,7 +16,7 @@ The main function is `run_simulation(network, sim_time, policy; ...)`.
 At a high level, for each step it:
 
 1. calls `policy(t, Tₐ, T_back)` to get producer setpoints (`ProducerOutput`),
-2. computes steady-state mass flows (`steady_state_hydronynamics!`),
+2. computes steady-state mass flows (`steady_state_hydrodynamics!`),
 3. propagates plugs forward (supply), applies load consumption, then propagates plugs backward (return),
 4. records temperatures / flows / powers into a `SimulationResults`.
 

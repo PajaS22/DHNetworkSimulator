@@ -168,7 +168,7 @@ display(f)
 
 If there is computed steady state flow first, the visualization shows the flow in the edges as well. The darker the more flow there is, which makes easy to analyze turbulance. Also, additional info is written in labels next to the edges and the exact flow velocity in [m/s] is shown upon hover.
 ```julia
-steady_state_hydronynamics!(network, 100.0)
+steady_state_hydrodynamics!(network, 100.0)
 f, ax, p = visualize_graph!(network)
 display(f)
 ```
