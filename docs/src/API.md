@@ -83,6 +83,9 @@ DHNetworkSimulator.DEFAULT_ZERO_PIPE_K_REPULSION
 DHNetworkSimulator.NodeHighlight
 DHNetworkSimulator.highlight_nodes!
 DHNetworkSimulator.reset_highlights!
+DHNetworkSimulator.EdgeHighlight
+DHNetworkSimulator.highlight_edges!
+DHNetworkSimulator.reset_edge_highlights!
 DHNetworkSimulator.edge_info
 DHNetworkSimulator.edge_info_hover
 DHNetworkSimulator.edge_infos

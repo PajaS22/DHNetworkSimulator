@@ -89,10 +89,13 @@ function policy(t, T_ambient) -> ProducerOutput(mass_flow=..., temperature=...)
 
 ### Documentation Workflow
 
+**This is mandatory — Documenter.jl will error at build time if any exported symbol with a docstring is missing from `docs/src/API.md`.**
+
 Whenever a function, type, or constructor is added or changed in `src/`, also:
 1. Add/update its docstring in the source file.
-2. Add it to the appropriate `@docs` block in `docs/src/API.md`.
-3. Ensure any `@ref` cross-links in docstrings point to entries that are actually included in `API.md`.
+2. Add/update its export line in `src/DHNetworkSimulator.jl`.
+3. Add it to the appropriate `@docs` block in `docs/src/API.md`.
+4. Ensure any `@ref` cross-links in docstrings point to entries that are actually included in `API.md`.
 
 ### GLMakie Environment Guard
 
