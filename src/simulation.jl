@@ -950,14 +950,22 @@ function apply_exit_heat_loss!(plugs::Vector{Plug}, d::Float64, R::Float64, step
     end
 end
 
-"""Compute load power demand as a function of outdoor temperature.
+"""Compute load power demand as a function of outdoor temperature (and optionally mass flow).
 
-Calls `node.load.fn(node.load.params, Tₐ)` and returns the result in **Watts**
-(the load function returns kW — conversion is handled internally).
+When `node.load.use_mass_flow` is `false`, calls `node.load.fn(node.load.params, Tₐ)`.
+When `node.load.use_mass_flow` is `true`, calls `node.load.fn(node.load.params, Tₐ, mass_flow)`
+where `mass_flow` is taken from `node.common.mass_flow` (set by `steady_state_hydrodynamics!`).
+
+Returns power in **Watts** (the load function returns kW — conversion is handled internally).
 The result is clamped to zero to prevent negative power (energy flowing back into the network).
 """
 function power_consumption(node::LoadNode, Tₐ::Float64)::Float64
-    return max(0.0, node.load.fn(node.load.params, Tₐ)) * 1000.0
+    if node.load.use_mass_flow
+        m = mass_flow(node)
+        return max(0.0, node.load.fn(node.load.params, Tₐ, m)) * 1000.0
+    else
+        return max(0.0, node.load.fn(node.load.params, Tₐ)) * 1000.0
+    end
 end
 power_consumption(node::LoadNode, Tₐ::Nothing) = 0.0
 

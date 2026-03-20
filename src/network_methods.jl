@@ -280,11 +280,22 @@ the network) or **not finite** (unbounded load function).
 - `T_a_range`: temperature sample points for validation. Widen or narrow this range to match your
   network's operating envelope. Default: `-30.0:1.0:30.0`.
 """
-function validate_load_spec(fn::Function, params::Vector{Float64}; T_a_range=-30.0:1.0:30.0)
-    for T_a in T_a_range
-        v = fn(params, Float64(T_a))
-        v < 0.0    && error("Load function returns negative power ($v kW) at T_ambient = $T_a °C. Power demand must be ≥ 0.")
-        !isfinite(v) && error("Load function returns non-finite power ($v kW) at T_ambient = $T_a °C.")
+function validate_load_spec(fn::Function, params::Vector{Float64};
+                             T_a_range=-30.0:1.0:30.0,
+                             use_mass_flow::Bool=false,
+                             mass_flow_refs::Vector{Float64}=[0.5, 1.0, 5.0])
+    if use_mass_flow
+        for T_a in T_a_range, m in mass_flow_refs
+            v = fn(params, Float64(T_a), m)
+            v < 0.0    && error("Load function returns negative power ($v kW) at T_ambient = $T_a °C, mass_flow = $m kg/s. Power demand must be ≥ 0.")
+            !isfinite(v) && error("Load function returns non-finite power ($v kW) at T_ambient = $T_a °C, mass_flow = $m kg/s.")
+        end
+    else
+        for T_a in T_a_range
+            v = fn(params, Float64(T_a))
+            v < 0.0    && error("Load function returns negative power ($v kW) at T_ambient = $T_a °C. Power demand must be ≥ 0.")
+            !isfinite(v) && error("Load function returns non-finite power ($v kW) at T_ambient = $T_a °C.")
+        end
     end
 end
 
@@ -297,17 +308,17 @@ It must be non-negative and finite over the validation range.
 See also: [`set_load_params!`](@ref), [`validate_load_spec`](@ref).
 """
 function set_load_fn!(nw::Network, label::String, fn::Function, params::AbstractVector{<:Real};
-                      T_a_range=-30.0:1.0:30.0)
+                      T_a_range=-30.0:1.0:30.0, use_mass_flow::Bool=false)
     has_label(nw, label) || error("Node with label $label does not exist in the network.")
     node = nw[label]
     node isa LoadNode || error("Node with label $label is not a load node.")
     p = Vector{Float64}(params)  # always copy so each node owns its params
     try
-    validate_load_spec(fn, p; T_a_range=T_a_range)
+        validate_load_spec(fn, p; T_a_range=T_a_range, use_mass_flow=use_mass_flow)
     catch e
         error("$label power validation failed: $(e.msg)")
     end
-    node.load = LoadSpec(fn, p)
+    node.load = LoadSpec(fn, p, use_mass_flow)
     nw[label] = node
 end
 
@@ -316,9 +327,9 @@ end
 See also: [`set_load_fn!`](@ref).
 """
 function set_load_fn!(nw::Network, fn::Function, params::AbstractVector{<:Real};
-                      T_a_range=-30.0:1.0:30.0)
+                      T_a_range=-30.0:1.0:30.0, use_mass_flow::Bool=false)
     for label in nw.load_labels
-        set_load_fn!(nw, label, fn, params; T_a_range=T_a_range)
+        set_load_fn!(nw, label, fn, params; T_a_range=T_a_range, use_mass_flow=use_mass_flow)
     end
 end
 
@@ -330,21 +341,29 @@ node is updated — if any validation fails, no nodes are changed.
 See also: [`set_load_fn!`](@ref).
 """
 function set_load_fn!(nw::Network, fn::Function, params_dict::Dict{String, <:AbstractVector{<:Real}};
-                      T_a_range=-30.0:1.0:30.0)
+                      T_a_range=-30.0:1.0:30.0, use_mass_flow::Bool=false)
     # validate all first so we don't partially update the network on error
     for (label, params) in params_dict
         has_label(nw, label) || error("Node with label $label does not exist in the network.")
         nw[label] isa LoadNode || error("Node with label $label is not a load node.")
-        validate_load_spec(fn, convert(Vector{Float64}, params); T_a_range=T_a_range)
+        validate_load_spec(fn, convert(Vector{Float64}, params); T_a_range=T_a_range, use_mass_flow=use_mass_flow)
     end
     for (label, params) in params_dict
         node = nw[label]
-        node.load = LoadSpec(fn, convert(Vector{Float64}, params))
+        node.load = LoadSpec(fn, convert(Vector{Float64}, params), use_mass_flow)
         nw[label] = node
     end
 end
 
-# set relative_mass_flow for load node
+"""Set the relative mass-flow coefficient `m_rel` for a single load node.
+
+`m_rel` is a dimensionless fraction relative to the total producer mass flow.
+It is used by [`steady_state_hydrodynamics!`](@ref) to distribute absolute flow
+among all loads; a value of 1.0 means *average* load (when all loads sum to
+`n_loads`).  In practice, normalise so that `mean(m_rel) = 1.0` across all loads.
+
+See also: [`set_load_fn!`](@ref), [`set_load_params!`](@ref), [`steady_state_hydrodynamics!`](@ref).
+"""
 function set_load_m_rel!(nw::Network, label::String, m_rel::Float64)
     if !has_label(nw, label)
         error("Node with label $label does not exist in the network.")
@@ -397,6 +416,9 @@ heat_resistance_backward(e::InsulatedPipe) = e.physical_params.heat_resistance_b
 
 """Return mass flow in kg/s."""
 mass_flow(e::InsulatedPipe) = e.mass_flow
+
+"""Return the steady-state mass flow [kg/s] stored on a node (set by `steady_state_hydrodynamics!`)."""
+mass_flow(n::NodeType) = n.common.mass_flow
 
 """Return relative mass flow coefficient (m_rel) for a pipe."""
 m_rel(e::InsulatedPipe) = e.m_rel

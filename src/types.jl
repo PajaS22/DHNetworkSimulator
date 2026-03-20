@@ -153,24 +153,57 @@ function hockey_load(params::Vector{Float64}, T_a::Float64)
     return max(0.0, T_a <= T_b ? a + b * (T_b - T_a) : a)
 end
 
+"""Built-in power demand function: general hockey-stick model depending on ambient
+temperature **and** mass flow through the load.
+
+The load parameters `a` and `b` of the hockey-stick model are expressed as linear functions
+of the mass flow ṁ [kg/s] at the load:
+
+```
+a(ṁ)      = α_a + β_a · ṁ
+b(ṁ)      = α_b + β_b · ṁ
+P(T_a, ṁ) = a(ṁ) + b(ṁ) · max(0, T_b − T_a)   [kW]
+```
+
+# Parameters (`params = [α_a, β_a, α_b, β_b, T_b]`)
+- `α_a` — base-load intercept [kW].
+- `β_a` — base-load slope [kW/(kg/s)].
+- `α_b` — heating-slope intercept [kW/°C].
+- `β_b` — heating-slope slope [kW/(°C·kg/s)].
+- `T_b` — balance-point temperature [°C].
+
+See also: [`hockey_load`](@ref), [`LoadSpec`](@ref).
+"""
+function general_hockey_load(params::Vector{Float64}, T_a::Float64, mass_flow::Float64)
+    α_a, β_a, α_b, β_b, T_b = params
+    a = α_a + β_a * mass_flow
+    b = α_b + β_b * mass_flow
+    return max(0.0, a + b * max(0.0, T_b - T_a))
+end
+
 """Load specification pairing a power demand function with its parameters.
 
-`fn(params, T_a)` must return power demand in **kW** for a given parameter vector and ambient
-temperature `T_a` in °C. Parameters are stored as a `Vector{Float64}` so they can be updated
-without replacing the function.
+The load function can depend on ambient temperature alone, or on both ambient temperature
+and the load's instantaneous mass flow (e.g. [`general_hockey_load`](@ref)).
 
 ```julia
 mutable struct LoadSpec
     fn::Function
     params::Vector{Float64}
+    use_mass_flow::Bool
 end
 ```
 
 # Fields
-- `fn::Function`: demand function with signature `fn(params::Vector{Float64}, T_a::Float64) -> Float64` (kW).
+- `fn::Function`: demand function. When `use_mass_flow = false`, called as
+  `fn(params, T_a) -> Float64` [kW]. When `use_mass_flow = true`, called as
+  `fn(params, T_a, mass_flow) -> Float64` [kW], where `mass_flow` is the
+  steady-state mass flow [kg/s] at the load node.
 - `params::Vector{Float64}`: current parameters passed to `fn`.
+- `use_mass_flow::Bool`: whether the function takes mass flow as a third argument.
 
-See also: [`polynomial_load`](@ref), [`hockey_load`](@ref), [`set_load_fn!`](@ref), [`set_load_params!`](@ref), [`validate_load_spec`](@ref).
+See also: [`polynomial_load`](@ref), [`hockey_load`](@ref), [`general_hockey_load`](@ref),
+[`set_load_fn!`](@ref), [`set_load_params!`](@ref), [`validate_load_spec`](@ref).
 
 # Constructors
 - `LoadSpec()`: default `polynomial_load` with `DEFAULT_LOAD_PARAMS`.
@@ -183,6 +216,7 @@ See also: [`polynomial_load`](@ref), [`hockey_load`](@ref), [`set_load_fn!`](@re
 mutable struct LoadSpec
     fn::Function
     params::Vector{Float64}
+    use_mass_flow::Bool
 end
 
 # Load Node: heat consumer
@@ -522,12 +556,12 @@ SumpNode() = SumpNode("sump")
 
 # LOAD NODE CONSTRUCTORS
 const DEFAULT_LOAD_PARAMS = [540.0, -36.0, 0.6]  # default quadratic polynomial coefficients (kW vs °C)
-LoadSpec() = LoadSpec(polynomial_load, copy(DEFAULT_LOAD_PARAMS))
-LoadSpec(params::Vector{<:Real})       = LoadSpec(polynomial_load, Vector{Float64}(params))
-LoadSpec(params::Real...)              = LoadSpec(polynomial_load, collect(Float64, params))
-LoadSpec(fn::Function, params::Vector{<:Real}) = LoadSpec(fn, Vector{Float64}(params))
-LoadSpec(fn::Function, params::Real...) = LoadSpec(fn, collect(Float64, params))
-LoadSpec(::typeof(hockey_load); a::Real, b::Real, T_b::Real) = LoadSpec(hockey_load, Float64(a), Float64(b), Float64(T_b))
+LoadSpec() = LoadSpec(polynomial_load, copy(DEFAULT_LOAD_PARAMS), false)
+LoadSpec(params::Vector{<:Real})       = LoadSpec(polynomial_load, Vector{Float64}(params), false)
+LoadSpec(params::Real...)              = LoadSpec(polynomial_load, collect(Float64, params), false)
+LoadSpec(fn::Function, params::Vector{<:Real}) = LoadSpec(fn, Vector{Float64}(params), false)
+LoadSpec(fn::Function, params::Real...) = LoadSpec(fn, collect(Float64, params), false)
+LoadSpec(::typeof(hockey_load); a::Real, b::Real, T_b::Real) = LoadSpec(hockey_load, [Float64(a), Float64(b), Float64(T_b)], false)
 
 LoadNode(info::String; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info), load, missing)
 LoadNode(info::String, m_rel::Float64; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info), load, m_rel)
