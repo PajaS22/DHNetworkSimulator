@@ -82,7 +82,13 @@ end
 function Base.show(io::IO, node::LoadNode)
     summary = "Load Node, "
     summary *= string_node_common(node.common)
-    summary *= !ismissing(node.load) ? ", Load (at 0°C): $(round(node.load.fn(node.load.params, 0.0); digits=1)) kW" : ""
+    if !ismissing(node.load)
+        if node.load.use_mass_flow
+            summary *= ", Load: general hockey power (mass-flow dependent)"
+        else
+            summary *= ", Load (at 0°C): $(round(node.load.fn(node.load.params, 0.0); digits=1)) kW"
+        end
+    end
     summary *= !ismissing(node.m_rel) ? ", M_flow_rel: $(round(node.m_rel; digits=2))" : ""
     println(io, summary)
 end
