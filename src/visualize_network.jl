@@ -186,6 +186,80 @@ function reset_highlights!(p, nw::Network)
     return nothing
 end
 
+"""
+    EdgeHighlight(; color=nothing, width=nothing)
+
+Specifies visual overrides for a single edge in [`highlight_edges!`](@ref).
+
+Both fields are optional; `nothing` means "keep the default for this edge type".
+
+# Fields
+- `color`: A Makie-compatible color (e.g. `colorant"red"`, `RGBAf(1,0,0,1)`) or `nothing`.
+- `width`: Edge line width (positive number) or `nothing`.
+
+# Example
+```julia
+highlights = Dict(
+    ("Node_1", "Node_2") => EdgeHighlight(color=colorant"orange", width=5.0),
+    ("Node_3", "Node_4") => EdgeHighlight(color=colorant"red"),
+)
+highlight_edges!(p, nw, highlights)
+```
+"""
+struct EdgeHighlight
+    color   # nothing or a Makie-compatible color
+    width   # nothing or a number
+end
+EdgeHighlight(; color=nothing, width=nothing) = EdgeHighlight(color, width)
+
+"""
+    highlight_edges!(p, nw, highlights::Dict{Tuple{String,String}, EdgeHighlight})
+
+Update edge colors and widths in an existing `graphplot` according to `highlights`.
+
+`p` is the third return value of [`visualize_graph!`](@ref). Each key in
+`highlights` is a `(src_label, dst_label)` tuple; the associated [`EdgeHighlight`](@ref)
+overrides its color and/or width. Edges not present in `highlights` are unchanged.
+
+# Example
+```julia
+_, _, p = visualize_graph!(nw)
+highlight_edges!(p, nw, Dict(
+    ("Source", "Load_1") => EdgeHighlight(color=colorant"red", width=6.0),
+))
+```
+"""
+function highlight_edges!(p, nw::Network, highlights::Dict{Tuple{String,String}, EdgeHighlight})
+    mg = nw.mg
+    colors = copy(p.edge_color[])
+    widths = copy(p.edge_width[])
+    for (i, (src_lbl, dst_lbl)) in enumerate(edge_labels(mg))
+        key = (src_lbl, dst_lbl)
+        haskey(highlights, key) || continue
+        h = highlights[key]
+        isnothing(h.color) || (colors[i] = h.color)
+        isnothing(h.width) || (widths[i] = h.width)
+    end
+    p.edge_color[] = colors
+    p.edge_width[]  = widths
+    return nothing
+end
+
+"""
+    reset_edge_highlights!(p, nw)
+
+Reset all edge colors and widths in an existing `graphplot` to their type-based
+defaults (as computed by `edge_colors` and `edge_widths`).
+
+`p` is the third return value of [`visualize_graph!`](@ref).
+"""
+function reset_edge_highlights!(p, nw::Network)
+    mg = nw.mg
+    p.edge_color[] = edge_colors(mg)
+    p.edge_width[]  = edge_widths(mg, 10.0, 2.0)
+    return nothing
+end
+
 # Sample-based estimate of the typical inter-node distance (O(1) instead of O(n²)).
 function _sample_typical_distance(pos_vals::Vector, n_samples::Int = 200)
     n = length(pos_vals)
