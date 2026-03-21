@@ -940,8 +940,8 @@ end
 function apply_exit_heat_loss!(plugs::Vector{Plug}, d::Float64, R::Float64, step::Int, Δt::Float64, T_a::Float64)
     ρ  = WATER_DENSITY
     cₚ = WATER_SPECIFIC_HEAT
-    A  = π * (d / 2)^2
-    τ_c = ρ * cₚ * A * R
+    A  = 1/4 * π * d^2
+    τ_c = ρ * cₚ * A * R # [kg/m³] * [J/(kg·K)] * [m²] * [K·m/W] = [J/W] = [s]
     for p in plugs
         τ = (step - p.k) * Δt
         if τ > 0.0
