@@ -43,6 +43,7 @@ export water_velocities, water_velocity
 export outneighbors, inneighbors, neighbors, degree, outdegree, indegree
 export validate_load_spec, set_load_fn!, set_load_m_rel!
 export info
+export position!
 
 
 include("printing.jl")
@@ -74,6 +75,9 @@ export compute_time_delay, compute_initial_delay
 
 include("network_analysis.jl")
 export producer_loads_volumes, producer_loads_delays
+
+include("io.jl")
+export save_network, load_network
 
 # Precompile simulation and auto-positioning so the first user call pays no JIT cost.
 @compile_workload begin
