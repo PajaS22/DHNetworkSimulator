@@ -423,6 +423,9 @@ mass_flow(n::NodeType) = n.common.mass_flow
 """Return relative mass flow coefficient (m_rel) for a pipe."""
 m_rel(e::InsulatedPipe) = e.m_rel
 
+info(n::NodeType) = n.common.info
+info(e::Union{InsulatedPipe, ZeroPipe}) = e.info
+
 """Compute water velocity in an `InsulatedPipe` in m/s.
 
 Returns `missing` if the pipe has no mass flow set.

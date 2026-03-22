@@ -42,6 +42,7 @@ export pipe_length, length, inner_diameter, heat_resistance_forward, heat_resist
 export water_velocities, water_velocity
 export outneighbors, inneighbors, neighbors, degree, outdegree, indegree
 export validate_load_spec, set_load_fn!, set_load_m_rel!
+export info
 
 
 include("printing.jl")
