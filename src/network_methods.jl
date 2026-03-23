@@ -415,6 +415,10 @@ heat_resistance_forward(e::InsulatedPipe) = e.physical_params.heat_resistance_fo
 """Return thermal resistance (return direction) in m·K/W."""
 heat_resistance_backward(e::InsulatedPipe) = e.physical_params.heat_resistance_backward
 
+heat_resistance_forward!(e::InsulatedPipe, R::Float64) = (e.physical_params.heat_resistance_forward = R)
+heat_resistance_backward!(e::InsulatedPipe, R::Float64) = (e.physical_params.heat_resistance_backward = R)
+
+
 """Return mass flow in kg/s."""
 mass_flow(e::InsulatedPipe) = e.mass_flow
 

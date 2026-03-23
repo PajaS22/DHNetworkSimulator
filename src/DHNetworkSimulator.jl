@@ -44,6 +44,7 @@ export outneighbors, inneighbors, neighbors, degree, outdegree, indegree
 export validate_load_spec, set_load_fn!, set_load_m_rel!
 export info, info!
 export position!, position, positions, distance
+export heat_resistance_forward!, heat_resistance_backward!
 
 
 include("printing.jl")
