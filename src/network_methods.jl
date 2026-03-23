@@ -426,6 +426,8 @@ m_rel(e::InsulatedPipe) = e.m_rel
 
 info(n::NodeType) = n.common.info
 info(e::Union{InsulatedPipe, ZeroPipe}) = e.info
+info!(n::NodeType, new_info::String) = (n.common.info = new_info)
+info!(e::Union{InsulatedPipe, ZeroPipe}, new_info::String) = (e.info = new_info)
 
 """Compute water velocity in an `InsulatedPipe` in m/s.
 
