@@ -323,7 +323,7 @@ Plug(T::Float64, m::Float64) = Plug(T, m, 0)
 These parameters describe geometry and heat-loss characteristics.
 
 ```julia
-struct PipeParams                       # unchanging physical parameters of the pipe
+mutable struct PipeParams                       # unchanging physical parameters of the pipe
     length::Float64                     # Length of the pipe [m]
     inner_diameter::Float64             # Inner diameter [m]
     heat_resistance_forward::Float64    # Thermal resistance [m*K/W]
@@ -341,7 +341,7 @@ end
 - `PipeParams(length, inner_diameter, heat_resistance_forward, heat_resistance_backward)`: positional, all values explicit.
 - `PipeParams(; length, inner_diameter, heat_resistance_forward=3.0, heat_resistance_backward=4.0)`: keyword form with sensible defaults for the resistance values.
 """
-struct PipeParams                       # unchanging physical parameters of the pipe
+mutable struct PipeParams                       # unchanging physical parameters of the pipe
     length::Float64                     # Length of the pipe [m]
     inner_diameter::Float64             # Inner diameter [m]
     heat_resistance_forward::Float64    # Thermal resistance [m*K/W]

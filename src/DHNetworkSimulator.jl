@@ -125,7 +125,18 @@ if get(ENV, "GITHUB_ACTIONS", "false") != "true"
             nw["_wv_j",  "_wv_l1"] = InsulatedPipe(50.0)
             nw["_wv_j",  "_wv_l2"] = InsulatedPipe(50.0)
             try
-                visualize_graph!(nw)
+                f, ax, p = visualize_graph!(nw)
+                # Precompile node highlighting
+                highlight_nodes!(p, nw, Dict("_wv_l1" => NodeHighlight(color=colorant"red", size=30.0)))
+                reset_highlights!(p, nw)
+                # Precompile edge highlighting
+                highlight_edges!(p, nw, Dict(("_wv_p", "_wv_j") => EdgeHighlight(color=colorant"orange", width=5.0)))
+                reset_edge_highlights!(p, nw)
+                # Precompile figure display (normal and fullscreen)
+                display(f)
+                GLMakie.closeall()
+                display(GLMakie.Screen(fullscreen=true), f)
+                GLMakie.closeall()
             catch
             end
         end

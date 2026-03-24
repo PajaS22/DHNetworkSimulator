@@ -611,8 +611,8 @@ function visualize_graph!(nw::Network;
     prev_arrows_visible = Ref{Bool}(false)
     prev_labels_visible = Ref{Bool}(false)
 
-    function update_lod!(limits)
-        w = limits.widths[1]
+    # apply_lod! does the actual observable updates — called once per settled resize.
+    function apply_lod!(w)
         new_arrows = w < threshold_arrows
         new_labels = w < threshold_labels
 
@@ -627,10 +627,32 @@ function visualize_graph!(nw::Network;
             p.elabels[] = new_labels ? edge_infos(mg) : lod_hidden_edges
         end
     end
+
+    # Debounced LOD observer: during rapid resize (e.g. window maximize) the
+    # finallimits observable fires dozens of times per second.  Reacting to every
+    # event would queue up many expensive graph re-renders.  Instead we arm a
+    # short timer (80 ms) on each event and only call apply_lod! once the window
+    # size has settled.
+    lod_timer = Ref{Union{Nothing,Timer}}(nothing)
+
+    function update_lod!(limits)
+        w = limits.widths[1]
+        # Cancel any in-flight timer so we only ever run after the last event.
+        t = lod_timer[]
+        t !== nothing && close(t)
+        lod_timer[] = Timer(_ -> apply_lod!(w), 0.08)
+    end
     on(update_lod!, ax.finallimits)
 
-    # autolimits! triggers finallimits, which fires update_lod! to set initial visibility.
+    # autolimits! triggers finallimits → update_lod!; flush immediately so the
+    # initial state is set synchronously (no 80 ms delay on first open).
     autolimits!(ax)
+    t0 = lod_timer[]
+    if t0 !== nothing
+        close(t0)
+        lod_timer[] = nothing
+    end
+    apply_lod!(ax.finallimits[].widths[1])
 
     # Hover: highlight hovered edge in red and show detailed label.
     # Hover labels are always shown on hover regardless of zoom level.
