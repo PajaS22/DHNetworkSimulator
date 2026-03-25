@@ -536,7 +536,7 @@ function set_relative_mass_flows!(nw::Network)
 
             parent_node = inneighbors(nw, node)[1] # assume there is only one parent
             if(outdegree(nw, node) == 0) # leaf node
-                @assert nw[node] isa LoadNode
+                @assert nw[node] isa LoadNode "Leaf node $(nw[node].common.info) is not a LoadNode. Please check the network structure."
                 nw[parent_node, node].m_rel = nw[node].m_rel # copy m_rel from LoadNode to the edge leading to it
 
             elseif nw[node] isa JunctionNode || nw[node] isa SumpNode # visiting for second time, so all children have been processed
