@@ -3,11 +3,14 @@
 
 Compute the transit time delay τ(t) for every simulation time step t.
 
-τ(t) is defined as the time [s] it takes for a plug of water that **enters the
-producer node at step t** to travel through the supply network and reach the
-specified load node.  The plug traverses each pipe segment sequentially; its
-travel time through a pipe equals the pipe's water volume divided by the (time-
-varying) mass flow through that pipe.
+τ(t) is defined as the time [s] the plug of water **exiting at step t** has
+spent travelling through the supply network from the producer to the specified
+load node.  Equivalently, `T_supply(t − τ(t))` is the producer temperature of
+the fluid arriving at the load at step t.
+
+The plug traverses each pipe segment sequentially; its travel time through a
+pipe equals the pipe's water volume divided by the (time-varying) mass flow
+through that pipe.
 
 # Arguments
 - `network::Network`            — network whose topology is used (must have been
@@ -24,8 +27,8 @@ varying) mass flow through that pipe.
 # Output
 The returned vector (or each vector in the dict) has the same length N as
 `sim_result[:mass_flow_producer]`.  Entry τ[t] contains the delay in seconds,
-or `missing` when the plug cannot reach the load within the simulation window
-(i.e. insufficient mass-flow data remain after step t to fill the pipe path).
+or `missing` when the pipe path was not yet fully flushed by step t (i.e.
+insufficient mass-flow data precede step t to account for the pipe volume).
 
 # Notes
 - The flow through an intermediate pipe segment is computed as the **sum of the
@@ -33,7 +36,9 @@ or `missing` when the plug cannot reach the load within the simulation window
 - Only `InsulatedPipe` segments contribute to the delay; `ZeroPipe` and other
   edge types are skipped.
 - The calculation uses a precomputed cumulative-sum array per pipe segment and
-  `searchsortedfirst` for O(log N) binary search per time step.
+  `searchsortedfirst` for O(log N) binary search per time step.  Pipe segments
+  are traversed in **reverse** (load → producer) to find the injection time of
+  the plug exiting at each step.
 
 # Example
 ```julia
@@ -62,23 +67,22 @@ function compute_time_delay(
         τ = Vector{Union{Float64, Missing}}(missing, N)
 
         for t in 1:N
-            start   = t      # next pipe begins accumulating from this step
-            success = true
+            end_step = t      # plug exits the last pipe at step t
+            success  = true
 
-            for (M_pipe, cumflow) in segs
+            for (M_pipe, cumflow) in Iterators.reverse(segs)
                 # cumflow[i] = Σ_{j=1}^{i-1} flow[j]*Δt  (length N+1)
-                # We need: cumflow[k+1] - cumflow[start] >= M_pipe
-                #       => cumflow[k+1] >= cumflow[start] + M_pipe
-                start > N && (success = false; break)
-                target = cumflow[start] + M_pipe
-                # Binary search in cumflow[start+1 .. N+1]
+                # We need cumflow[s] <= cumflow[end_step+1] - M_pipe < cumflow[s+1]
+                # => entry step s = searchsortedfirst(...) - 1
+                target = cumflow[end_step + 1] - M_pipe
+                target < 0 && (success = false; break)
+                # Binary search in cumflow[1 .. end_step+1]
                 idx = searchsortedfirst(cumflow, target,
-                                        start + 1, N + 1, Base.Order.Forward)
-                idx > N + 1 && (success = false; break)
-                start = idx - 1   # k = idx-1 is the step where pipe is flushed
+                                        1, end_step + 1, Base.Order.Forward)
+                end_step = idx - 1   # step at which plug entered this pipe
             end
 
-            success && (τ[t] = (start - t) * Δt)
+            success && (τ[t] = (t - end_step) * Δt)
         end
 
         results[lbl] = τ
@@ -91,15 +95,16 @@ end
 """
     compute_initial_delay(network, sim_result, Δt; label=nothing)
 
-Compute only τ(1) — the transit time [s] for a water plug that enters the
-producer node at the **first** simulation step to reach each load.
+Compute the **warmup duration** [s] for each load — the time until the pipe
+path is first fully flushed with producer-side fluid.
 
-This is the **warmup duration**: temperature signals recorded before this time
-still reflect the water that pre-filled the pipes at simulation start, not the
-actual producer output, and should therefore be excluded when comparing
-simulated results to measurements.
+This equals τ(t₀), the transit delay at the first valid output step t₀ (the
+earliest step at which a complete column of producer fluid has passed through
+all pipe segments to reach the load).  Temperature signals before this time
+still reflect pre-filled water and should be excluded when comparing simulated
+results to measurements.
 
-Equivalent to `compute_time_delay(...)[1]` for each load, but runs in
+Equivalent to `compute_time_delay(...)[t₀]` for each load, but runs in
 O(P·log N) per load instead of O(N·P·log N), making it fast to call on large
 networks before any analysis loop.
 
