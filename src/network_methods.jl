@@ -427,6 +427,7 @@ mass_flow(n::NodeType) = n.common.mass_flow
 
 """Return relative mass flow coefficient (m_rel) for a pipe."""
 m_rel(e::InsulatedPipe) = e.m_rel
+m_rel(n::NodeType) = n.m_rel
 
 info(n::NodeType) = n.common.info
 info(e::Union{InsulatedPipe, ZeroPipe}) = e.info

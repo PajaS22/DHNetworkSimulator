@@ -76,6 +76,7 @@ export compute_time_delay, compute_initial_delay
 
 include("network_analysis.jl")
 export producer_loads_volumes, producer_loads_delays
+export path_to_load, downstream_loads, path_pipe_segments
 
 include("io.jl")
 export save_network, load_network

@@ -1,51 +1,64 @@
 """
-    compute_time_delay(network, sim_result, Δt; label=nothing) -> τ_vec or Dict
+    compute_time_delay(network, sim_result, Δt; label=nothing, delay_type=:back)
 
-Compute the transit time delay τ(t) for every simulation time step t.
+Compute the plug-flow transit delay for every simulation time step.
 
-τ(t) is defined as the time [s] the plug of water **exiting at step t** has
-spent travelling through the supply network from the producer to the specified
-load node.  Equivalently, `T_supply(t − τ(t))` is the producer temperature of
-the fluid arriving at the load at step t.
+At each output step `t`, the exiting fluid was injected over a window of input
+steps.  That window has two boundaries:
 
-The plug traverses each pipe segment sequentially; its travel time through a
-pipe equals the pipe's water volume divided by the (time-varying) mass flow
-through that pipe.
+- **Front wall** — the oldest boundary (fluid that has been in the pipe the
+  longest).  It entered the first pipe at a continuous time *within* some input
+  step, and exits at the **start** of output step `t` (time `(t−1)·Δt`).
+- **Back wall** — the newest boundary (fluid that just entered the exit window).
+  It entered the first pipe within a later input step and exits at the **end**
+  of output step `t` (time `t·Δt`).
+
+`delay_type` selects which wall's transit time to return:
+
+| `delay_type` | returned τ | formula (single pipe, Planning notation) |
+|:---|:---|:---|
+| `:front` | time front wall spent in pipe | `(dτ₁ − 1 + α) · Δt` |
+| `:back`  | time back wall spent in pipe  | `(dτ₂ + 1 − β) · Δt` |
+| `:both`  | named tuple `(; front, back)` | both vectors |
+
+Both delays are measured as physical transit time (continuous entry → continuous
+exit), so they are directly comparable with `τ₁` / `τ₂` from the Planning
+module's `continuous_time_delays`.
 
 # Arguments
-- `network::Network`            — network whose topology is used (must have been
-  set up with `identify_producer_and_loads!` and `fill_physical_params!`).
-- `sim_result::SimulationResults` — completed simulation result; load mass flows
-  are read from `sim_result[lbl, :mass_flow_load]` and used as pipe flows.
-- `Δt::Real`                    — simulation time step [s].
+- `network::Network`              — topology (must have been set up with
+  `identify_producer_and_loads!` and `fill_physical_params!`).
+- `sim_result::SimulationResults` — completed simulation; load mass flows are
+  read from `sim_result[lbl, :mass_flow_load]`.
+- `Δt::Real`                      — simulation time step [s].
 
 # Keyword arguments
-- `label::Union{String,Nothing}` — if a string, compute τ only for that load and
-  return a single `Vector{Union{Float64,Missing}}`.  If `nothing` (default),
-  compute for **all** loads and return a `Dict{String, Vector{Union{Float64,Missing}}}`.
+- `label::Union{String,Nothing}` — if a string, compute for that load only and
+  return a vector (or named tuple for `:both`).  If `nothing` (default),
+  compute for all loads and return a `Dict`.
+- `delay_type::Symbol`           — `:front`, `:back` (default), or `:both`.
 
 # Output
-The returned vector (or each vector in the dict) has the same length N as
-`sim_result[:mass_flow_producer]`.  Entry τ[t] contains the delay in seconds,
-or `missing` when the pipe path was not yet fully flushed by step t (i.e.
-insufficient mass-flow data precede step t to account for the pipe volume).
+- `:front` / `:back` with a label → `Vector{Union{Float64,Missing}}`, length N.
+- `:both` with a label → `NamedTuple` `(; front::Vector{…}, back::Vector{…})`.
+- Without a label → `Dict{String, <above>}`.
+
+Entry is `missing` when the pipe path was not yet fully flushed at step `t`.
 
 # Notes
-- The flow through an intermediate pipe segment is computed as the **sum of the
-  simulated mass flows** of all downstream loads (those reachable through that pipe).
-- Only `InsulatedPipe` segments contribute to the delay; `ZeroPipe` and other
-  edge types are skipped.
-- The calculation uses a precomputed cumulative-sum array per pipe segment and
-  `searchsortedfirst` for O(log N) binary search per time step.  Pipe segments
-  are traversed in **reverse** (load → producer) to find the injection time of
-  the plug exiting at each step.
+- Only `InsulatedPipe` segments contribute to the delay.
+- Pipe segments are traversed in **reverse** (load → producer).  The fractional
+  correction (α / β) is applied only at the outermost (producer-side) pipe,
+  where the fluid originally entered the network.
 
 # Example
 ```julia
-sr = run_simulation(network, t_vec, policy; mode=:forward_only,
-                    ambient_temperature=T_a_vec)
-τ = compute_time_delay(network, sr, Δt; label="M2_VS_3")
-τ_all = compute_time_delay(network, sr, Δt)   # Dict for every load
+sr = run_simulation(network, t_vec, policy; mode=:forward_only)
+τ_back  = compute_time_delay(network, sr, Δt; label="L1")
+τ_front = compute_time_delay(network, sr, Δt; label="L1", delay_type=:front)
+τ_both  = compute_time_delay(network, sr, Δt; label="L1", delay_type=:both)
+τ_both.front   # Vector{Union{Float64,Missing}}
+τ_both.back    # Vector{Union{Float64,Missing}}
 ```
 """
 function compute_time_delay(
@@ -53,39 +66,92 @@ function compute_time_delay(
     sim_result::SimulationResults,
     Δt::Real;
     label::Union{String, Nothing} = nothing,
-)::Union{Vector{Union{Float64, Missing}}, Dict{String, Vector{Union{Float64, Missing}}}}
+    delay_type::Symbol = :back,
+)
+    delay_type ∈ (:front, :back, :both) ||
+        error("delay_type must be :front, :back, or :both, got :$delay_type")
 
     labels = label === nothing ? collect(network.load_labels) : [label]
     N      = length(sim_result[:mass_flow_producer])
 
-    results = Dict{String, Vector{Union{Float64, Missing}}}()
+    results = Dict{String, Any}()
 
     for lbl in labels
-        path = _td_path_to_load(network, lbl)   # [producer, …, lbl]
-        segs = _td_pipe_segments(network, sim_result, path, Float64(Δt), N)
+        path = path_to_load(network, lbl)
+        segs = path_pipe_segments(network, sim_result, path, Float64(Δt), N)
 
-        τ = Vector{Union{Float64, Missing}}(missing, N)
+        τ_front = (delay_type == :back)  ? nothing :
+                  Vector{Union{Float64, Missing}}(missing, N)
+        τ_back  = (delay_type == :front) ? nothing :
+                  Vector{Union{Float64, Missing}}(missing, N)
 
         for t in 1:N
-            end_step = t      # plug exits the last pipe at step t
-            success  = true
+            # ── back wall: entered at continuous time within step end_step_b ──
+            # target_b = M_new = cumflow[t+1] - M_pipe
+            # The back wall is the newest fluid exiting at step t.
+            # It entered the first pipe at fraction β through step end_step_b,
+            # i.e. at time (end_step_b - 1 + β)·Δt, and exits at time t·Δt.
+            # τ_back = (t - end_step_b + 1 - β)·Δt
+            if !isnothing(τ_back)
+                end_step = t
+                success  = true
+                last_cumflow = segs[end][2]   # will be overwritten; just a placeholder
+                last_target  = 0.0
 
-            for (M_pipe, cumflow) in Iterators.reverse(segs)
-                # cumflow[i] = Σ_{j=1}^{i-1} flow[j]*Δt  (length N+1)
-                # We need cumflow[s] <= cumflow[end_step+1] - M_pipe < cumflow[s+1]
-                # => entry step s = searchsortedfirst(...) - 1
-                target = cumflow[end_step + 1] - M_pipe
-                target < 0 && (success = false; break)
-                # Binary search in cumflow[1 .. end_step+1]
-                idx = searchsortedfirst(cumflow, target,
-                                        1, end_step + 1, Base.Order.Forward)
-                end_step = idx - 1   # step at which plug entered this pipe
+                for (M_pipe, cumflow) in Iterators.reverse(segs)
+                    target = cumflow[end_step + 1] - M_pipe
+                    target < 0 && (success = false; break)
+                    idx      = searchsortedfirst(cumflow, target,
+                                                 1, end_step + 1, Base.Order.Forward)
+                    end_step     = idx - 1
+                    last_cumflow = cumflow
+                    last_target  = target
+                end
+
+                if success && end_step >= 1
+                    denom = last_cumflow[end_step + 1] - last_cumflow[end_step]
+                    β = denom > 0 ? (last_target - last_cumflow[end_step]) / denom : 0.0
+                    τ_back[t] = (t - end_step + 1 - β) * Δt
+                end
             end
 
-            success && (τ[t] = (t - end_step) * Δt)
+            # ── front wall: entered at continuous time within step end_step_f ──
+            # target_f = M_prev = cumflow[t] - M_pipe
+            # The front wall is the oldest fluid still exiting at step t.
+            # It entered at fraction (1-α) through step end_step_f,
+            # i.e. at time (end_step_f - α)·Δt, and exits at time (t-1)·Δt.
+            # τ_front = (t - end_step_f - 1 + α)·Δt
+            if !isnothing(τ_front)
+                end_step = t
+                success  = true
+                last_cumflow = segs[end][2]
+                last_target  = 0.0
+
+                for (M_pipe, cumflow) in Iterators.reverse(segs)
+                    target = cumflow[end_step] - M_pipe
+                    target < 0 && (success = false; break)
+                    idx      = searchsortedfirst(cumflow, target,
+                                                 1, end_step + 1, Base.Order.Forward)
+                    end_step     = idx - 1
+                    last_cumflow = cumflow
+                    last_target  = target
+                end
+
+                if success && end_step >= 1
+                    denom = last_cumflow[end_step + 1] - last_cumflow[end_step]
+                    α = denom > 0 ? (last_cumflow[end_step + 1] - last_target) / denom : 1.0
+                    τ_front[t] = (t - end_step - 1 + α) * Δt
+                end
+            end
         end
 
-        results[lbl] = τ
+        results[lbl] = if delay_type == :both
+            (; front=τ_front, back=τ_back)
+        elseif delay_type == :front
+            τ_front
+        else
+            τ_back
+        end
     end
 
     return label === nothing ? results : results[label]
@@ -144,8 +210,8 @@ function compute_initial_delay(
     results = Dict{String, Union{Float64, Missing}}()
 
     for lbl in labels
-        path = _td_path_to_load(network, lbl)
-        segs = _td_pipe_segments(network, sim_result, path, Float64(Δt), N)
+        path = path_to_load(network, lbl)
+        segs = path_pipe_segments(network, sim_result, path, Float64(Δt), N)
 
         start   = 1   # plug enters at step 1
         success = true
@@ -165,11 +231,16 @@ function compute_initial_delay(
 end
 
 
-# ── Internal helpers ──────────────────────────────────────────────────────────
+# ── Path and segment helpers ───────────────────────────────────────────────────
 
-# Walk backwards from `load_label` to the producer and return the full node path
-# [producer, …, load_label].  Assumes a tree (each node has at most one parent).
-function _td_path_to_load(network::Network, load_label::String)::Vector{String}
+"""
+    path_to_load(network, load_label) -> Vector{String}
+
+Return the ordered node-label path `[producer, intermediate..., load_label]`
+from the producer to `load_label`, walking backwards via `inneighbors`.
+Assumes a tree topology (each node has at most one parent).
+"""
+function path_to_load(network::Network, load_label::String)::Vector{String}
     path = String[load_label]
     node = load_label
     while !isempty(inneighbors(network, node))
@@ -180,23 +251,30 @@ function _td_path_to_load(network::Network, load_label::String)::Vector{String}
     return path
 end
 
-# Return the set of load labels reachable (downstream) from `node`, including
-# `node` itself if it is a load.
-function _td_downstream_loads(network::Network, node::String)::Set{String}
+"""
+    downstream_loads(network, node) -> Set{String}
+
+Return the set of load labels reachable downstream from `node`,
+including `node` itself if it is a load node.
+"""
+function downstream_loads(network::Network, node::String)::Set{String}
     node in network.load_labels && return Set{String}([node])
     loads = Set{String}()
     for child in outneighbors(network, node)
-        union!(loads, _td_downstream_loads(network, child))
+        union!(loads, downstream_loads(network, child))
     end
     return loads
 end
 
-# For each InsulatedPipe segment on `path`, build a tuple (M_pipe_kg, cumflow)
-# where cumflow is the length-(N+1) precomputed cumulative integral of the
-# mass flow [kg] through that pipe over time.
-# Flow through an intermediate pipe = sum of simulated mass flows of all
-# downstream loads (those reachable through the pipe's destination node).
-function _td_pipe_segments(
+"""
+    path_pipe_segments(network, sim_result, path, Δt, N)
+
+For each `InsulatedPipe` on `path` (ordered node labels from producer to load),
+return a `(M_pipe_kg, cumflow)` tuple where `M_pipe_kg` is the fluid mass [kg]
+and `cumflow` is the length-`(N+1)` cumulative mass through the pipe, computed
+from the simulated mass flows of all downstream loads.
+"""
+function path_pipe_segments(
     network::Network,
     sim_result::SimulationResults,
     path::Vector{String},
@@ -219,7 +297,7 @@ function _td_pipe_segments(
 
         # Aggregate flow of all downstream loads through this pipe
         flow = zeros(Float64, N)
-        for dl in _td_downstream_loads(network, dst)
+        for dl in downstream_loads(network, dst)
             dl in sim_load_labels || continue
             flow .+= sim_result[dl, :mass_flow_load]
         end
