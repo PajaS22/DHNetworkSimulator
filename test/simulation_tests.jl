@@ -559,4 +559,78 @@
         @test contains(string(sr), "0 sump node(s)")
     end
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # Time-varying m_rel
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @testset "time-varying m_rel: validation errors" begin
+        # mixing constant and vector m_rel across loads is not allowed
+        nw_mix = make_network()
+        set_load_m_rel!(nw_mix, "load1", fill(1.0, N))   # vector
+        # load2 still has scalar m_rel=2.0 → mixed → must error
+        @test_throws ErrorException run_simulation(nw_mix, t,
+            (t, Ta, Tb) -> ProducerOutput(mass_flow=10.0, temperature=80.0))
+
+        # vector m_rel with wrong length
+        nw_bad = make_network()
+        set_load_m_rel!(nw_bad, "load1", fill(1.0, N - 1))   # wrong length
+        set_load_m_rel!(nw_bad, "load2", fill(2.0, N - 1))
+        @test_throws ErrorException run_simulation(nw_bad, t,
+            (t, Ta, Tb) -> ProducerOutput(mass_flow=10.0, temperature=80.0))
+    end
+
+    @testset "time-varying m_rel: constant result when vector is uniform" begin
+        # A time-varying m_rel vector that is constant should give the same
+        # simulation results as the equivalent scalar m_rel.
+        nw_const  = make_network()  # load1 m_rel=1, load2 m_rel=2
+        nw_vector = make_network()
+        set_load_m_rel!(nw_vector, "load1", fill(1.0, N))
+        set_load_m_rel!(nw_vector, "load2", fill(2.0, N))
+
+        policy = (ts, Ta, Tb) -> ProducerOutput(mass_flow=10.0, temperature=80.0)
+        sr_c = run_simulation(nw_const,  t, policy; mode=:forward_only)
+        sr_v = run_simulation(nw_vector, t, policy; mode=:forward_only)
+
+        @test sr_c.mass_flow_load ≈ sr_v.mass_flow_load   atol=1e-10
+        @test sr_c.T_load_in      ≈ sr_v.T_load_in        atol=1e-10
+    end
+
+    @testset "time-varying m_rel: flows follow the prescribed vector" begin
+        # Two-step pattern: odd steps → equal split (1:1), even steps → 3:1 split.
+        # Verify that the recorded mass flows at each step match expectations.
+        total_flow = 12.0
+        m1 = [isodd(i) ? 1.0 : 3.0 for i in 1:N]
+        m2 = [isodd(i) ? 1.0 : 1.0 for i in 1:N]
+
+        nw_tv = make_network()
+        set_load_m_rel!(nw_tv, "load1", m1)
+        set_load_m_rel!(nw_tv, "load2", m2)
+
+        policy = (ts, Ta, Tb) -> ProducerOutput(mass_flow=total_flow, temperature=80.0)
+        sr = run_simulation(nw_tv, t, policy; mode=:forward_only)
+
+        # Check the first two steps (indices 1 and 2) against expected fractions.
+        # step 1: m_rel = (1, 1) → each load gets 0.5 of total
+        expected_step1 = total_flow * 1.0 / (1.0 + 1.0)
+        @test sr.mass_flow_load[1, sr[:load_labels_dict]["load1"]] ≈ expected_step1  atol=1e-10
+        @test sr.mass_flow_load[1, sr[:load_labels_dict]["load2"]] ≈ expected_step1  atol=1e-10
+
+        # step 2: m_rel = (3, 1) → load1 gets 3/4, load2 gets 1/4
+        expected_step2_l1 = total_flow * 3.0 / (3.0 + 1.0)
+        expected_step2_l2 = total_flow * 1.0 / (3.0 + 1.0)
+        @test sr.mass_flow_load[2, sr[:load_labels_dict]["load1"]] ≈ expected_step2_l1  atol=1e-10
+        @test sr.mass_flow_load[2, sr[:load_labels_dict]["load2"]] ≈ expected_step2_l2  atol=1e-10
+    end
+
+    @testset "time-varying m_rel: full mode completes without error" begin
+        nw_tv = make_network()
+        set_load_m_rel!(nw_tv, "load1", fill(1.0, N))
+        set_load_m_rel!(nw_tv, "load2", fill(2.0, N))
+        policy = (ts, Ta, Tb) -> ProducerOutput(mass_flow=10.0, temperature=80.0)
+        sr = run_simulation(nw_tv, t, policy; mode=:full, ambient_temperature=Tₐ)
+        @test length(sr) == N
+        @test !any(isnan, sr.T_load_in)
+        @test !any(isnan, sr.T_load_out)
+    end
+
 end

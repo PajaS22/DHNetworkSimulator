@@ -41,7 +41,7 @@ export rem_node!, rename_node!, remove_edge!
 export pipe_length, length, inner_diameter, heat_resistance_forward, heat_resistance_backward, mass_flow, m_rel, volume
 export water_velocities, water_velocity
 export outneighbors, inneighbors, neighbors, degree, outdegree, indegree
-export validate_load_spec, set_load_fn!, set_load_m_rel!
+export validate_load_spec, set_load_fn!, set_load_m_rel!, set_m_rel!
 export info, info!
 export position!, position, positions, distance
 export heat_resistance_forward!, heat_resistance_backward!
@@ -72,7 +72,7 @@ export SimulationResults
 export ProducerOutput
 
 include("time_delay.jl")
-export compute_time_delay, compute_initial_delay
+export compute_time_delay, compute_initial_delay, compute_k0
 
 include("network_analysis.jl")
 export producer_loads_volumes, producer_loads_delays

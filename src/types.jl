@@ -230,27 +230,37 @@ for a given ambient temperature `T_a` in °C.
 one with `m_rel=1.0`. Set this on every load node before running a simulation — the solver reads it from the leaves
 and propagates the split ratios upstream.
 
+`m_rel` can be either a **constant** `Float64` (same split every time step) or a **time-varying** `Vector{Float64}`
+(one value per simulation time step). All loads in the network must use the same mode uniformly: mixing constant and
+time-varying loads is not allowed and is detected at the start of [`run_simulation`](@ref).
+
+When a `Vector{Float64}` is stored, its length must equal the number of time steps `N` passed to [`run_simulation`](@ref).
+
 ```julia
 mutable struct LoadNode <: NodeType
     common::NodeCommon
-    load::Union{Missing, LoadSpec}   # Power demand specification
-    m_rel::Union{Missing, Float64}   # Relative mass flow coefficient (for branching nodes)
+    load::Union{Missing, LoadSpec}                      # Power demand specification
+    m_rel::Union{Missing, Float64, Vector{Float64}}     # Relative mass flow coefficient (constant or time-varying)
 end
 ```
 
 # Constructors
 - `LoadNode(; load=LoadSpec(polynomial_load, [...]))`
 - `LoadNode(info::String; load=...)`
-- `LoadNode(info::String, m_rel::Float64; load=...)`: set `m_rel` without specifying a position.
+- `LoadNode(info::String, m_rel::Float64; load=...)`: constant `m_rel`, no position.
+- `LoadNode(info::String, m_rel::Vector{Float64}; load=...)`: time-varying `m_rel`, no position.
 - `LoadNode(position::Tuple{Float64, Float64}; load=...)`
 - `LoadNode(info::String, position::Tuple{Float64, Float64}; load=...)`
-- `LoadNode(info::String, position::Tuple{Float64, Float64}, m_rel::Float64; load=...)`: set `m_rel` directly at construction.
+- `LoadNode(info::String, position::Tuple{Float64, Float64}, m_rel::Float64; load=...)`: constant `m_rel` at construction.
+- `LoadNode(info::String, position::Tuple{Float64, Float64}, m_rel::Vector{Float64}; load=...)`: time-varying `m_rel` at construction.
 - `LoadNode(info::String, position::Tuple{Float64, Float64}, load::LoadSpec)`: provide a custom `LoadSpec` as the third positional argument.
+
+See also: [`set_load_m_rel!`](@ref), [`run_simulation`](@ref).
 """
 mutable struct LoadNode <: NodeType
     common::NodeCommon
-    load::Union{Missing, LoadSpec}   # Power demand specification
-    m_rel::Union{Missing, Float64}   # Relative mass flow coefficient (for branching nodes)
+    load::Union{Missing, LoadSpec}                      # Power demand specification
+    m_rel::Union{Missing, Float64, Vector{Float64}}     # Relative mass flow coefficient (constant or time-varying)
 end
 
 # Producer Node: heat producer
@@ -299,24 +309,25 @@ Plugs are advected through pipes during time stepping and may be split/merged.
 mutable struct Plug
     T::Float64  # Temperature at the plug [°C]
     m::Float64  # mass of the plug [kg]
-    k::Int      # simulation step when the plug entered the current pipe (0 = initial / not yet in a pipe)
+    k::Float64  # fractional step when the plug's midpoint entered the current pipe (0.0 = initial fill)
 end
 ```
 
-`k` is set automatically when a plug is pushed into a pipe during simulation. It is used together
-with the simulation time step `Δt` to compute the transit time `τ = (step - k) · Δt`, which
-determines how much heat the plug loses to the surroundings.
+`k` is a fractional (sub-step) entry time in units of simulation steps. When a plug exits a
+pipe, `k` is updated to the fractional step at which the plug's mass midpoint crossed the pipe
+outlet — this becomes the entry time for the next pipe segment. Transit time through any pipe is
+`τ = (k_exit - k_entry) · Δt`, giving sub-step resolution without integer rounding.
 """
 mutable struct Plug
     T::Float64  # Temperature at the plug [°C]
     m::Float64  # mass of the plug [kg]
-    k::Int      # simulation step when the plug entered the current pipe (0 = initial / not yet in a pipe)
+    k::Float64  # fractional step when the plug's midpoint entered the current pipe (0.0 = initial fill)
 end
 
 """    Plug(T, m)
-Convenience constructor — creates a plug with `k = 0` (not yet in a pipe).
+Convenience constructor — creates a plug with `k = 0.0` (initial fill, not yet in a pipe).
 """
-Plug(T::Float64, m::Float64) = Plug(T, m, 0)
+Plug(T::Float64, m::Float64) = Plug(T, m, 0.0)
 
 """Physical parameters of a pipe (constant during simulation).
 
@@ -357,8 +368,8 @@ end
 mutable struct InsulatedPipe <: EdgeType
     info::String
     physical_params::PipeParams
-    mass_flow::Union{Missing, Float64}  # Mass flow in [kg/s]
-    m_rel::Union{Missing, Float64}      # Relative mass flow coefficient (for branching pipes)
+    mass_flow::Union{Missing, Float64}                  # Mass flow in [kg/s]
+    m_rel::Union{Missing, Float64, Vector{Float64}}     # Relative mass flow coefficient (scalar or time-varying)
     plugs_f::Vector{Plug}               # Queue of plugs in the pipe (forward direction)
     plugs_b::Vector{Plug}               # Queue of plugs in the pipe (backward direction)
 end
@@ -367,7 +378,11 @@ end
 # Fields
 - `physical_params`: geometry and heat-loss parameters (see `PipeParams`).
 - `mass_flow`: mass flow in kg/s. `missing` until computed by `steady_state_hydrodynamics!`.
-- `m_rel`: relative flow coefficient used for splitting at junctions. `missing` until computed.
+- `m_rel`: relative flow coefficient used for splitting at junctions. `missing` until set.
+  Written as a `Float64` scalar by the per-step [`set_relative_mass_flows!`](@ref) overload
+  or as a `Vector{Float64}` (one entry per simulation step) by the no-argument (vectorised)
+  overload. Use [`m_rel(pipe, step)`](@ref) to read the value for a specific time step
+  regardless of which form is stored.
 - `plugs_f`: plug queue for the forward (supply) direction.
 - `plugs_b`: plug queue for the backward (return) direction.
 
@@ -381,8 +396,8 @@ end
 mutable struct InsulatedPipe <: EdgeType
     info::String
     physical_params::PipeParams
-    mass_flow::Union{Missing, Float64}  # Mass flow in [kg/s]
-    m_rel::Union{Missing, Float64}      # Relative mass flow coefficient (for branching pipes)
+    mass_flow::Union{Missing, Float64}                  # Mass flow in [kg/s]
+    m_rel::Union{Missing, Float64, Vector{Float64}}     # Relative mass flow coefficient (scalar or time-varying)
     plugs_f::Vector{Plug}               # Queue of plugs in the pipe (forward direction)
     plugs_b::Vector{Plug}               # Queue of plugs in the pipe (backward direction)
 end
@@ -520,12 +535,17 @@ empty at the start and end of each time step.
 - `ZeroPipe(info::String; mass_flow=missing, m_rel=missing)`: pre-set hydraulic fields.
 - `ZeroPipe(; info="zero pipe", mass_flow=missing, m_rel=missing)`: keyword form.
 
+`m_rel` follows the same scalar / time-varying convention as [`InsulatedPipe`](@ref): a
+`Float64` after a per-step [`set_relative_mass_flows!`](@ref) call, or a `Vector{Float64}`
+after the vectorised no-argument overload. Use [`m_rel(pipe, step)`](@ref) to read the
+value for a specific time step.
+
 See also: `InsulatedPipe`.
 """
 mutable struct ZeroPipe <: EdgeType
     info::String
     mass_flow::Union{Missing, Float64}
-    m_rel::Union{Missing, Float64}
+    m_rel::Union{Missing, Float64, Vector{Float64}}
     plugs_f::Vector{Plug}
     plugs_b::Vector{Plug}
 end
@@ -565,9 +585,11 @@ LoadSpec(::typeof(hockey_load); a::Real, b::Real, T_b::Real) = LoadSpec(hockey_l
 
 LoadNode(info::String; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info), load, missing)
 LoadNode(info::String, m_rel::Float64; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info), load, m_rel)
+LoadNode(info::String, m_rel::Vector{Float64}; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info), load, m_rel)
 LoadNode(info::String, position::Tuple{Float64, Float64}; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info, position), load, missing)
 LoadNode(info::String, position::Tuple{Float64, Float64}, load::LoadSpec) = LoadNode(NodeCommon(info, position), load, missing)
 LoadNode(info::String, position::Tuple{Float64, Float64}, m_rel::Float64; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info, position), load, m_rel)
+LoadNode(info::String, position::Tuple{Float64, Float64}, m_rel::Vector{Float64}; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info, position), load, m_rel)
 LoadNode(info::String, ::Missing; load::LoadSpec=LoadSpec()) = LoadNode(info; load=load)  # position missing, use keyword form
 LoadNode(position::Tuple{Float64, Float64}; load::LoadSpec=LoadSpec()) = LoadNode("load", position; load=load)
 LoadNode(; load::LoadSpec=LoadSpec()) = LoadNode("load"; load=load)

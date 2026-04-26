@@ -208,4 +208,50 @@
         @test l8.load.params[1] == DEFAULT_LOAD_PARAMS[1]  # l8 unaffected
     end
 
+    @testset "LoadNode time-varying m_rel constructors" begin
+        vec = [1.0, 2.0, 1.5, 0.8]
+
+        # info + vector (no position)
+        lv1 = LoadNode("Lv", vec)
+        @test lv1.m_rel isa Vector{Float64}
+        @test lv1.m_rel == vec
+        @test lv1.common.info == "Lv"
+
+        # info + position + vector
+        lv2 = LoadNode("Lv2", (3.0, 4.0), vec)
+        @test lv2.m_rel isa Vector{Float64}
+        @test lv2.m_rel == vec
+        @test lv2.common.position == (3.0, 4.0)
+
+        # set_load_m_rel! with vector
+        nw = Network()
+        nw["p"] = ProducerNode()
+        nw["l"] = LoadNode("L")
+        nw["p", "l"] = InsulatedPipe(50.0)
+        set_load_m_rel!(nw, "l", vec)
+        @test nw["l"].m_rel isa Vector{Float64}
+        @test nw["l"].m_rel == vec
+
+        # set_m_rel! scalar on a pipe
+        pipe = InsulatedPipe(50.0)
+        set_m_rel!(pipe, 2.5)
+        @test pipe.m_rel == 2.5
+        zpipe = ZeroPipe()
+        set_m_rel!(zpipe, 0.7)
+        @test zpipe.m_rel == 0.7
+
+        # set_m_rel! vector on a pipe
+        set_m_rel!(pipe, [1.0, 2.0, 3.0])
+        @test pipe.m_rel isa Vector{Float64}
+        @test pipe.m_rel == [1.0, 2.0, 3.0]
+        # m_rel(pipe, step) accessor
+        @test m_rel(pipe, 1) == 1.0
+        @test m_rel(pipe, 2) == 2.0
+        @test m_rel(pipe, 3) == 3.0
+        # scalar accessor: step is ignored
+        set_m_rel!(pipe, 5.0)
+        @test m_rel(pipe, 1)  == 5.0
+        @test m_rel(pipe, 99) == 5.0
+    end
+
 end

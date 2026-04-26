@@ -104,6 +104,7 @@ DHNetworkSimulator.heat_resistance_forward
 DHNetworkSimulator.heat_resistance_backward
 DHNetworkSimulator.mass_flow
 DHNetworkSimulator.m_rel
+DHNetworkSimulator.set_m_rel!
 DHNetworkSimulator.water_velocity
 DHNetworkSimulator.water_velocities
 ```
@@ -161,6 +162,7 @@ DHNetworkSimulator.producer_loads_delays
 ```@docs
 DHNetworkSimulator.compute_time_delay
 DHNetworkSimulator.compute_initial_delay
+DHNetworkSimulator.compute_k0
 ```
 
 ## Saving and loading networks

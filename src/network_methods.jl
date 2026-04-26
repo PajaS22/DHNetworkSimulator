@@ -363,9 +363,28 @@ It is used by [`steady_state_hydrodynamics!`](@ref) to distribute absolute flow
 among all loads; a value of 1.0 means *average* load (when all loads sum to
 `n_loads`).  In practice, normalise so that `mean(m_rel) = 1.0` across all loads.
 
+Two forms are accepted:
+
+- `m_rel::Float64` — constant fraction, used identically at every time step.
+- `m_rel::Vector{Float64}` — time-varying fraction; element `i` is used at simulation
+  step `i`. The vector length must equal the number of simulation time steps `N`.
+  All loads in a network must use the same form (constant or time-varying).
+
 See also: [`set_load_fn!`](@ref), [`set_load_params!`](@ref), [`steady_state_hydrodynamics!`](@ref).
 """
 function set_load_m_rel!(nw::Network, label::String, m_rel::Float64)
+    if !has_label(nw, label)
+        error("Node with label $label does not exist in the network.")
+    end
+    node = nw[label]
+    if !(node isa LoadNode)
+        error("Node with label $label is not a load node.")
+    end
+    node.m_rel = m_rel
+    nw[label] = node
+end
+
+function set_load_m_rel!(nw::Network, label::String, m_rel::Vector{Float64})
     if !has_label(nw, label)
         error("Node with label $label does not exist in the network.")
     end
@@ -425,9 +444,55 @@ mass_flow(e::InsulatedPipe) = e.mass_flow
 """Return the steady-state mass flow [kg/s] stored on a node (set by `steady_state_hydrodynamics!`)."""
 mass_flow(n::NodeType) = n.common.mass_flow
 
-"""Return relative mass flow coefficient (m_rel) for a pipe."""
+"""Return relative mass flow coefficient (`m_rel`) for a pipe or node.
+
+    m_rel(e)           -> Union{Missing, Float64, Vector{Float64}}
+    m_rel(e, step::Int) -> Float64
+
+The single-argument form returns the raw field value — `missing` before assignment,
+`Float64` after a per-step [`set_relative_mass_flows!`](@ref) call, or
+`Vector{Float64}` after the vectorised no-argument overload.
+
+The two-argument form always returns a `Float64` for the given `step`:
+- `Float64` field → returns it directly (step is ignored; constant coefficient).
+- `Vector{Float64}` field → returns `pipe.m_rel[step]`.
+
+For a `LoadNode` the behaviour is the same: `m_rel(node)` returns
+`Union{Missing, Float64, Vector{Float64}}`, and `m_rel(node, step)` returns
+the scalar for that step.
+
+See also: [`set_m_rel!`](@ref), [`set_load_m_rel!`](@ref),
+[`set_relative_mass_flows!`](@ref).
+"""
 m_rel(e::InsulatedPipe) = e.m_rel
 m_rel(n::NodeType) = n.m_rel
+
+# Internal helper: extract the scalar m_rel value for a pipe at the given step.
+_pipe_m_rel_at(m::Float64,          ::Int) = m
+_pipe_m_rel_at(m::Vector{Float64}, step::Int) = m[step]
+
+m_rel(e::InsulatedPipe, step::Int) = _pipe_m_rel_at(e.m_rel, step)
+
+"""Set the `m_rel` value on a pipe edge in-place.
+
+    set_m_rel!(e::Union{InsulatedPipe, ZeroPipe}, value::Float64)
+    set_m_rel!(e::Union{InsulatedPipe, ZeroPipe}, value::Vector{Float64})
+
+Writes `value` to the `m_rel` field of the pipe. Both a constant scalar and a
+pre-computed time-varying vector are accepted.
+
+This is the low-level setter used internally by [`set_relative_mass_flows!`](@ref)
+and is exposed for users who want to manipulate pipe split coefficients directly
+(e.g. in custom hydraulic solvers).
+
+After storing a `Vector{Float64}`, use [`m_rel(pipe, step)`](@ref) to read the
+value for a specific time step.
+
+See also: [`m_rel`](@ref), [`set_load_m_rel!`](@ref), [`set_relative_mass_flows!`](@ref).
+"""
+function set_m_rel!(e::Union{InsulatedPipe, ZeroPipe}, value::Union{Float64, Vector{Float64}})
+    e.m_rel = value
+end
 
 info(n::NodeType) = n.common.info
 info(e::Union{InsulatedPipe, ZeroPipe}) = e.info
@@ -457,6 +522,7 @@ heat_resistance_forward(::ZeroPipe) = 0.0
 heat_resistance_backward(::ZeroPipe) = 0.0
 mass_flow(e::ZeroPipe) = e.mass_flow
 m_rel(e::ZeroPipe) = e.m_rel
+m_rel(e::ZeroPipe, step::Int) = _pipe_m_rel_at(e.m_rel, step)
 water_velocity(::ZeroPipe) = missing
 
 """Compute water velocities for all pipe edges in the network.

@@ -102,7 +102,11 @@ function edge_info(e::T) where {T<:EdgeType} # non-hover label for edge types
         info *= "ṁ=$(round(e.mass_flow, digits=2)) kg/s, "
     end
     if !ismissing(e.m_rel)
-        info *= "m_rel=$(round(e.m_rel, digits=2))"
+        if e.m_rel isa Float64
+            info *= "m_rel=$(round(e.m_rel, digits=2))"
+        else
+            info *= "m_rel=[precomputed, $(length(e.m_rel)) steps]"
+        end
     end
     return info
 end
