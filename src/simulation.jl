@@ -23,6 +23,10 @@ struct SimulationResults
         sump_labels::Dict{String, Int}
         producer_label::String
         m_rel_load::Matrix{Float64}
+        tau1_load::Matrix{Float64}
+        tau2_load::Matrix{Float64}
+        tau1_producer::Vector{Float64}
+        tau2_producer::Vector{Float64}
 end
 ```
 
@@ -44,7 +48,11 @@ end
 - `T_sump_b`: return (backward) temperature at each sump in °C. Size `N × nsumps`. `Nothing` in forward-only mode.
 - `sump_labels`: mapping from sump label to column index used in the `*_sump` matrices.
 - `producer_label`: label of the producer node (used by the universal indexing aliases).
-- `m_rel_load`: relative mass-flow split coefficients at load nodes. Size `N × nloads`. `m_rel_load[i, j]` is the scalar `m_rel` value used at load `j` during time step `i`. For constant loads this column is uniform; for time-varying loads it captures the full trajectory. Used by [`compute_time_delay`](@ref) to reconstruct per-pipe mass flows without re-running hydraulics.
+- `m_rel_load`: relative mass-flow split coefficients at load nodes. Size `N × nloads`. `m_rel_load[i, j]` is the scalar `m_rel` value used at load `j` during time step `i`. For constant loads this column is uniform; for time-varying loads it captures the full trajectory.
+- `tau1_load`: front-wall (oldest exiting fluid) supply-path transit delay at each load [s]. Size `N × nloads`. `NaN` for steps where initial-fill water is still exiting (before the pipe is fully flushed).
+- `tau2_load`: back-wall (newest exiting fluid) supply-path transit delay at each load [s]. Size `N × nloads`. `NaN` for initial-fill steps.
+- `tau1_producer`: front-wall return-path transit delay at the producer [s]. Length `N`. `NaN` for initial-fill steps or in `:forward_only` mode.
+- `tau2_producer`: back-wall return-path transit delay at the producer [s]. Length `N`. `NaN` for initial-fill steps or in `:forward_only` mode.
 
 # Indexing
 Convenience accessors are provided:
@@ -59,6 +67,10 @@ Convenience accessors are provided:
 - `sr["S1", :T_sump_f]` returns the supply temperature time series for sump S1 (a vector).
 - `sr["S1", :T_sump_b]` returns the return temperature time series for sump S1 (a vector).
 - `sr["S1", :mass_flow_sump]` returns the mass flow time series for sump S1 (a vector).
+- `sr["L1", :tau1_load]` returns the front-wall delay time series for load L1 (a vector, NaN = initial fill).
+- `sr["L1", :tau2_load]` returns the back-wall delay time series for load L1 (a vector, NaN = initial fill).
+- `sr[:tau1_producer]` returns the front-wall return-path delay vector at the producer.
+- `sr[:tau2_producer]` returns the back-wall return-path delay vector at the producer.
 
 Universal aliases (work for any label — load, sump, or producer):
 
@@ -87,10 +99,14 @@ struct SimulationResults
     sump_labels::Dict{String, Int}          # labels of sump nodes corresponding to columns
     producer_label::String                  # label of the producer node
     m_rel_load::Matrix{Float64}             # relative mass-flow coefficients at load nodes (rows: time steps, columns: load nodes)
+    tau1_load::Matrix{Float64}              # front-wall supply-path delay at each load [s]; NaN = initial fill
+    tau2_load::Matrix{Float64}              # back-wall supply-path delay at each load [s]; NaN = initial fill
+    tau1_producer::Vector{Float64}          # front-wall return-path delay at producer [s]; NaN = initial fill or forward_only
+    tau2_producer::Vector{Float64}          # back-wall return-path delay at producer [s]; NaN = initial fill or forward_only
 end
 # constructor with keyword arguments for better readability
-function SimulationResults(;time, mass_flow_load, mass_flow_producer, T_load_in, T_load_out, T_producer_in, T_producer_out, power_load, power_producer, load_labels_dict, mass_flow_sump, T_sump_f, T_sump_b, sump_labels_dict, producer_label, m_rel_load)
-    return SimulationResults(time, mass_flow_load, mass_flow_producer, T_load_in, T_load_out, T_producer_in, T_producer_out, power_load, power_producer, load_labels_dict, mass_flow_sump, T_sump_f, T_sump_b, sump_labels_dict, producer_label, m_rel_load)
+function SimulationResults(;time, mass_flow_load, mass_flow_producer, T_load_in, T_load_out, T_producer_in, T_producer_out, power_load, power_producer, load_labels_dict, mass_flow_sump, T_sump_f, T_sump_b, sump_labels_dict, producer_label, m_rel_load, tau1_load, tau2_load, tau1_producer, tau2_producer)
+    return SimulationResults(time, mass_flow_load, mass_flow_producer, T_load_in, T_load_out, T_producer_in, T_producer_out, power_load, power_producer, load_labels_dict, mass_flow_sump, T_sump_f, T_sump_b, sump_labels_dict, producer_label, m_rel_load, tau1_load, tau2_load, tau1_producer, tau2_producer)
 end
 
 # ------------------------------------------------ #
@@ -390,6 +406,10 @@ function run_simulation(
     results_T_sump_f                 = fill(NaN, N, num_sumps)
     results_T_sump_b                 = mode == :forward_only ? nothing : fill(NaN, N, num_sumps)
     results_m_rel_load               = Matrix{Float64}(undef, N, num_loads)
+    results_tau1_load                = fill(NaN, N, num_loads)
+    results_tau2_load                = fill(NaN, N, num_loads)
+    results_tau1_producer            = fill(NaN, N)
+    results_tau2_producer            = fill(NaN, N)
 
     # ---- time loop ----
     for i in 1:N
@@ -429,6 +449,8 @@ function run_simulation(
                 col = load_labels_cols[load_label]
                 results_temperature_load_in[i, col] = plug.T
                 results_mass_flow_load[i, col]      = plug.m / Δt
+                isnan(plug.t1) || (results_tau1_load[i, col] = (i - 1 - plug.t1) * Δt)
+                isnan(plug.t2) || (results_tau2_load[i, col] = (i     - plug.t2) * Δt)
             end
             for (label, col) in sump_labels_cols
                 haskey(sump_plugs_f, label) && (results_T_sump_f[i, col] = sump_plugs_f[label].T)
@@ -492,6 +514,8 @@ function run_simulation(
             sump_plugs_b = !isnothing(results_T_sump_b) ? Dict{String, Plug}() : nothing
             incoming_plug = time_step_thermal_dynamics_backward!(network, Δt, i, return_plugs, Tₐ; sump_plugs=sump_plugs_b)
             results_temperature_producer_in[i] = incoming_plug.T
+            isnan(incoming_plug.t1) || (results_tau1_producer[i] = (i - 1 - incoming_plug.t1) * Δt)
+            isnan(incoming_plug.t2) || (results_tau2_producer[i] = (i     - incoming_plug.t2) * Δt)
             if !isnothing(sump_plugs_b)
                 for (label, col) in sump_labels_cols
                     haskey(sump_plugs_b, label) && (results_T_sump_b[i, col] = sump_plugs_b[label].T)
@@ -532,7 +556,11 @@ function run_simulation(
         T_sump_b           = results_T_sump_b,
         sump_labels_dict   = sump_labels_cols,
         producer_label     = network.producer_label::String,
-        m_rel_load         = results_m_rel_load
+        m_rel_load         = results_m_rel_load,
+        tau1_load          = results_tau1_load,
+        tau2_load          = results_tau2_load,
+        tau1_producer      = results_tau1_producer,
+        tau2_producer      = results_tau2_producer,
     )
 end
 
@@ -794,7 +822,7 @@ function time_step_thermal_dynamics_forward!(nw::Network, Δt::Float64, step::In
     source_edges = [nw[root, n] for n in outneighbors(nw, root)]
     plug_masses = [edge.mass_flow * Δt for edge in source_edges] # integrate mass flow from source edge to get mass in kg
     for (source_edge, plug_mass) in zip(source_edges, plug_masses)
-        new_plug = Plug(temperature_source, plug_mass, Float64(step) - 0.5) # midpoint of step = fractional entry time
+        new_plug = Plug(temperature_source, plug_mass, Float64(step) - 0.5, Float64(step - 1), Float64(step))
         push_in_water_plugs_forward!(source_edge, [new_plug])
     end
 
@@ -852,7 +880,7 @@ function time_step_thermal_dynamics_forward!(nw::Network, Δt::Float64, step::In
             for p in plugs
                 next_mass = p.m * mass_flow_edge / total_mass_flow
                 if next_mass > 0.0
-                    next_plug = Plug(p.T, next_mass, p.k) # inherit k_avg_exit: all branch plugs enter their pipes at the same fractional time
+                    next_plug = Plug(p.T, next_mass, p.k, p.t1, p.t2) # inherit k, t1, t2
                     push!(next_pipe_plugs, next_plug)
                 end
             end
@@ -889,7 +917,9 @@ function time_step_thermal_dynamics_backward!(nw::Network, Δt::Float64, step::I
                 parent = inneighbors(nw, node)[1] # assume there is only one parent
                 parent_edge = nw[parent, node]
                 plug = incoming_plugs[node]
-                plug.k = Float64(step) - 0.5  # midpoint of step: return plug injected uniformly during this step
+                plug.k  = Float64(step) - 0.5  # midpoint of step: return plug injected uniformly during this step
+                plug.t1 = Float64(step - 1)
+                plug.t2 = Float64(step)
                 push_in_water_plugs_backward!(parent_edge, [plug])
 
             else # visiting for second time, so all children have been processed
@@ -971,18 +1001,21 @@ function collect_exiting_water_plugs!(
             # only part of the plug exits; split into exiting and remaining portions
             m_exits   = M_exit - M_acc
             m_remains = p.m - m_exits
-            k_entry     = p.k
-            k_avg_exit  = (step - 1) + (M_acc + m_exits / 2) / M_exit
-            # remaining portion stays in the pipe with the original entry k
-            pushfirst!(plugs, Plug(p.T, m_remains, k_entry))
-            # exiting portion: apply heat loss, then update k
-            exiting = Plug(p.T, m_exits, k_avg_exit)
+            k_entry    = p.k
+            k_avg_exit = (step - 1) + (M_acc + m_exits / 2) / M_exit
+            # split [t1, t2] proportionally by mass: front portion exits, back portion remains
+            frac    = m_exits / p.m
+            t_split = p.t1 + (p.t2 - p.t1) * frac
+            # remaining (back) portion stays in the pipe with the original entry k
+            pushfirst!(plugs, Plug(p.T, m_remains, k_entry, t_split, p.t2))
+            # exiting (front) portion: apply heat loss, then update k
+            exiting = Plug(p.T, m_exits, k_avg_exit, p.t1, t_split)
             apply_heat_loss && apply_exit_heat_loss!(exiting, k_entry, k_avg_exit, d, R, Δt, T_a)
             push!(exited_plugs, exiting)
             M_acc = M_exit
             break
         else
-            # entire plug exits
+            # entire plug exits; t1/t2 unchanged, only k is updated
             k_entry    = p.k
             k_avg_exit = (step - 1) + (M_acc + p.m / 2) / M_exit
             apply_heat_loss && apply_exit_heat_loss!(p, k_entry, k_avg_exit, d, R, Δt, T_a)
@@ -1043,16 +1076,21 @@ function merge_same_temperature_plugs!(plugs::Vector{Plug}; tol::Float64=1e-3)
     append!(plugs, merged_plugs) # replace original plugs with merged ones
 end
 
-"""Combine multiple plugs into a single mass-weighted average plug."""
+"""Combine multiple plugs into a single mass-weighted average plug.
+
+Temperature and k are mass-weighted averages. t1 is taken from the first plug
+(oldest/front boundary) and t2 from the last plug (newest/back boundary),
+preserving the full injection time window of the combined interval.
+"""
 function combine_plugs(plugs::Vector{Plug})::Plug
     @assert !isempty(plugs)
     total_mass = sum(p.m for p in plugs)
     if total_mass == 0.0
-        return Plug(25.0, 0.0, 0.0)
+        return Plug(25.0, 0.0, 0.0, NaN, NaN)
     end
     avg_temp = sum(p.T * p.m for p in plugs) / total_mass
     avg_k    = sum(p.k * p.m for p in plugs) / total_mass
-    return Plug(avg_temp, total_mass, avg_k)
+    return Plug(avg_temp, total_mass, avg_k, plugs[1].t1, plugs[end].t2)
 end
 
 """Set the relative mass-flow coefficient for one load node."""
@@ -1205,9 +1243,12 @@ function merge_water_plug_vectors!(plug_vectors::Vector{Vector{Plug}}, step::Int
             while acc_mass < target_mass && !isempty(plug_vectors[i])
                 p = popfirst!(plug_vectors[i])
                 if acc_mass + p.m > target_mass && p.m - (target_mass - acc_mass) >= atol_kg
-                    # only part of this plug falls in the current interval
-                    pushfirst!(plug_vectors[i], Plug(p.T, p.m - (target_mass - acc_mass), p.k)) # remainder preserves original k
-                    p = Plug(p.T, target_mass - acc_mass, p.k)
+                    # only part of this plug falls in the current interval; split t1/t2 proportionally
+                    portion = target_mass - acc_mass
+                    frac    = portion / p.m
+                    t_split = p.t1 + (p.t2 - p.t1) * frac
+                    pushfirst!(plug_vectors[i], Plug(p.T, p.m - portion, p.k, t_split, p.t2))
+                    p = Plug(p.T, portion, p.k, p.t1, t_split)
                 end
                 push!(plugs_at_t, p)
                 acc_mass += p.m
@@ -1226,11 +1267,13 @@ function merge_water_plug_vectors!(plug_vectors::Vector{Vector{Plug}}, step::Int
             @assert all(isempty.(plug_vectors))
         end
 
-        # mass-weighted temperature; k_avg = midpoint of this interval's position in the step
+        # mass-weighted temperature, k, t1, t2; k_avg = midpoint of interval in the step
         m_total_interval = sum(p.m for p in plugs_at_t)
-        T_merged     = sum(p.T * p.m for p in plugs_at_t) / m_total_interval
+        T_merged     = sum(p.T  * p.m for p in plugs_at_t) / m_total_interval
         k_avg_merged = Float64(step - 1) + (t_interval_start + t) / 2
-        push!(merged_plugs, Plug(T_merged, m_total_interval, k_avg_merged))
+        t1_merged    = sum(p.t1 * p.m for p in plugs_at_t) / m_total_interval
+        t2_merged    = sum(p.t2 * p.m for p in plugs_at_t) / m_total_interval
+        push!(merged_plugs, Plug(T_merged, m_total_interval, k_avg_merged, t1_merged, t2_merged))
     end
 
     # there should no plugs remain in the original vectors

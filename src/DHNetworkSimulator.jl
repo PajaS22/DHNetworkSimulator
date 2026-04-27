@@ -71,12 +71,8 @@ export plot_simulation_results
 export SimulationResults
 export ProducerOutput
 
-include("time_delay.jl")
-export compute_time_delay, compute_initial_delay, compute_k0
-
 include("network_analysis.jl")
 export producer_loads_volumes, producer_loads_delays
-export path_to_load, downstream_loads, path_pipe_segments
 
 include("io.jl")
 export save_network, load_network

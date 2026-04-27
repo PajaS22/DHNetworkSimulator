@@ -310,6 +310,8 @@ mutable struct Plug
     T::Float64  # Temperature at the plug [°C]
     m::Float64  # mass of the plug [kg]
     k::Float64  # fractional step when the plug's midpoint entered the current pipe (0.0 = initial fill)
+    t1::Float64 # 0-based step-unit injection time of the front (oldest) wall; NaN for initial fill
+    t2::Float64 # 0-based step-unit injection time of the back  (newest) wall; NaN for initial fill
 end
 ```
 
@@ -317,17 +319,31 @@ end
 pipe, `k` is updated to the fractional step at which the plug's mass midpoint crossed the pipe
 outlet — this becomes the entry time for the next pipe segment. Transit time through any pipe is
 `τ = (k_exit - k_entry) · Δt`, giving sub-step resolution without integer rounding.
+
+`t1` and `t2` track the absolute injection time window at the source (producer on the supply side,
+load on the return side). They are in 0-based step units: a plug injected during simulation step
+`s` (1-indexed) has `t1 = s − 1.0` and `t2 = Float64(s)`. When a plug is split proportionally
+by mass, the time interval `[t1, t2]` is split in the same ratio. The transit delay for the
+front wall at exit step `k` is `(k − 1 − t1) · Δt` and for the back wall is `(k − t2) · Δt`.
+`NaN` signals initial-fill water with no known injection time.
 """
 mutable struct Plug
     T::Float64  # Temperature at the plug [°C]
     m::Float64  # mass of the plug [kg]
     k::Float64  # fractional step when the plug's midpoint entered the current pipe (0.0 = initial fill)
+    t1::Float64 # 0-based step-unit injection time of the front (oldest) wall; NaN for initial fill
+    t2::Float64 # 0-based step-unit injection time of the back  (newest) wall; NaN for initial fill
 end
 
 """    Plug(T, m)
-Convenience constructor — creates a plug with `k = 0.0` (initial fill, not yet in a pipe).
+Convenience constructor — creates a plug with `k = 0.0`, `t1 = NaN`, `t2 = NaN` (initial fill).
 """
-Plug(T::Float64, m::Float64) = Plug(T, m, 0.0)
+Plug(T::Float64, m::Float64) = Plug(T, m, 0.0, NaN, NaN)
+
+"""    Plug(T, m, k)
+Convenience constructor — creates a plug with given `k` and `t1 = NaN`, `t2 = NaN`.
+"""
+Plug(T::Float64, m::Float64, k::Float64) = Plug(T, m, k, NaN, NaN)
 
 """Physical parameters of a pipe (constant during simulation).
 

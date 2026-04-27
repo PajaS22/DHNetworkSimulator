@@ -157,14 +157,6 @@ DHNetworkSimulator.producer_loads_volumes
 DHNetworkSimulator.producer_loads_delays
 ```
 
-## Time delay
-
-```@docs
-DHNetworkSimulator.compute_time_delay
-DHNetworkSimulator.compute_initial_delay
-DHNetworkSimulator.compute_k0
-```
-
 ## Saving and loading networks
 
 ```@docs
