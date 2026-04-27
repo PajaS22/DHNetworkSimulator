@@ -153,8 +153,7 @@ DHNetworkSimulator.plot_simulation_results
 ## Network analysis
 
 ```@docs
-DHNetworkSimulator.producer_loads_volumes
-DHNetworkSimulator.producer_loads_delays
+DHNetworkSimulator.path_to_load
 ```
 
 ## Saving and loading networks
