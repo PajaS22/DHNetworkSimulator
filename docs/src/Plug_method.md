@@ -1,5 +1,5 @@
 
-# Plug method for thermal dynamics
+# [Plug method for thermal dynamics](@id plug_method)
 
 This project solves heat transport in a district heating network using a **plug-flow (parcel) method**.
 Each pipe contains a queue of discrete **plugs of water**, where every plug has:

@@ -7,7 +7,7 @@ The simulation follows a **quasi-dynamic** approach:
 - **Hydraulics** are treated as steady state at each time step (mass flow distribution updates “instantly”).
 - **Thermal dynamics** are simulated by advecting discrete **plugs** of water through pipes.
 
-For details of the plug model, see [Plug method](@ref).
+For details of the plug model, see [Plug method](@ref plug_method).
 
 ## Run simulation: `run_simulation`
 

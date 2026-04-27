@@ -65,6 +65,7 @@ export fill_pipes_with_initial_temperature!
 export time_step_thermal_dynamics!
 export set_load_params!
 export power_consumption, consume_power!
+export get_k₀
 
 include("plot_simulation_results.jl")
 export plot_simulation_results

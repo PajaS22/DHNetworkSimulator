@@ -210,6 +210,35 @@ end
 Base.length(sr::SimulationResults) = length(sr.time)
 Base.show(io::IO, sr::SimulationResults) = print(io, "SimulationResults with $(length(sr)) time steps, $(length(sr.load_labels)) load node(s) and $(length(sr.sump_labels)) sump node(s).")
 
+"""
+k₀ is the first index of output at load with `label`, that doesn't contain any initial-fill water.
+"""
+function get_k₀(sr::SimulationResults; label::Union{Nothing, String, Vector{String}}=nothing)::Union{Nothing, Int, Dict{String, Union{Nothing, Int}}}
+    if isnothing(label)
+        label = sr[:load_labels] # all load labels
+    end
+    if label isa String
+        if label ∉ sr[:load_labels]
+            error("Label \"$label\" not found in SimulationResults load labels.")
+        else
+            label = [label] # wrap in vector for uniform processing
+        end
+    end
+    # label is now a Vector{String}
+    k₀_dict = Dict{String, Union{Nothing, Int}}()
+    for l in label
+        # this is the first backwall, that comes from the producer.
+        # Because frontwall is also the backwall of the previous plug, this exiting plug is a mixture of initial fill and producer water.
+        tau2_mixture = findfirst(!isnan, sr[l, :tau2_load])
+        k₀_dict[l] = isnothing(tau2_mixture) ? nothing : tau2_mixture + 1 # we have to take +1, because k₀ doesn't contain any initial-fill water
+    end
+    if length(label) == 1
+        return first(values(k₀_dict)) # return single Int if only one label was requested
+    else
+        return k₀_dict # return Dict if multiple labels were requested
+    end
+end
+
 # ------------------------------------------------ #
 # SIMULATION FUNCTIONS
 # ------------------------------------------------ #

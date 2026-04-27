@@ -12,7 +12,7 @@ Each time step is therefore solved in two stages:
 
 Simulations are typically **policy-driven**: you provide a `policy(t, Tₐ, T_back)` callback that returns the producer setpoints, and the simulator logs time series of temperatures, flows, and powers.
 
-More details on the thermal model are in [Plug method](@ref).
+More details on the thermal model are in [Plug method](@ref plug_method).
 
 
 ## Getting started
