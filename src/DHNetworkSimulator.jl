@@ -72,7 +72,7 @@ export SimulationResults
 export ProducerOutput
 
 include("network_analysis.jl")
-export producer_loads_volumes, producer_loads_delays
+export path_to_load
 
 include("io.jl")
 export save_network, load_network
