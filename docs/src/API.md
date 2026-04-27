@@ -142,6 +142,7 @@ DHNetworkSimulator.set_load_params!
 DHNetworkSimulator.power_consumption
 DHNetworkSimulator.consume_power!
 DHNetworkSimulator.run_simulation
+DHNetworkSimulator.get_k₀
 ```
 
 ## Plotting
