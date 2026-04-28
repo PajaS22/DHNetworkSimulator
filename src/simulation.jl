@@ -213,31 +213,50 @@ Base.show(io::IO, sr::SimulationResults) = print(io, "SimulationResults with $(l
 """
 k₀ is the first index of output at load with `label`, that doesn't contain any initial-fill water.
 """
-function get_k₀(sr::SimulationResults; label::Union{Nothing, String, Vector{String}}=nothing)::Union{Nothing, Int, Dict{String, Union{Nothing, Int}}}
-    if isnothing(label)
-        label = sr[:load_labels] # all load labels
+function get_k₀(sr::SimulationResults, mode::Symbol=:fwd; label::Union{Nothing, String, Vector{String}}=nothing)::Union{Nothing, Int, Dict{String, Union{Nothing, Int}}}
+    if mode ∉ (:fwd, :bwd)
+        ArgumentError("Invalid mode: $mode. Must be :fwd or :bwd.")
     end
-    if label isa String
-        if label ∉ sr[:load_labels]
-            error("Label \"$label\" not found in SimulationResults load labels.")
-        else
-            label = [label] # wrap in vector for uniform processing
+    if mode == :fwd
+        if isnothing(label)
+            label = sr[:load_labels] # all load labels
         end
-    end
-    # label is now a Vector{String}
-    k₀_dict = Dict{String, Union{Nothing, Int}}()
-    for l in label
-        # this is the first backwall, that comes from the producer.
-        # Because frontwall is also the backwall of the previous plug, this exiting plug is a mixture of initial fill and producer water.
-        tau2_mixture = findfirst(!isnan, sr[l, :tau2_load])
-        k₀_dict[l] = isnothing(tau2_mixture) ? nothing : tau2_mixture + 1 # we have to take +1, because k₀ doesn't contain any initial-fill water
-    end
-    if length(label) == 1
-        return first(values(k₀_dict)) # return single Int if only one label was requested
-    else
-        return k₀_dict # return Dict if multiple labels were requested
+        if label isa String
+            if label ∉ sr[:load_labels]
+                error("Label \"$label\" not found in SimulationResults load labels.")
+            else
+                label = [label] # wrap in vector for uniform processing
+            end
+        end
+        # label is now a Vector{String}
+        k₀_dict = Dict{String, Union{Nothing, Int}}()
+        for l in label
+            if mode == :fwd
+                # this is the first backwall, that comes from the producer.
+                # Because frontwall is also the backwall of the previous plug, this exiting plug is a mixture of initial fill and producer water.
+                tau2_mixture = findfirst(!isnan, sr[l, :tau2_load])
+                k₀_dict[l] = isnothing(tau2_mixture) ? nothing : tau2_mixture + 1 # we have to take +1, because k₀ doesn't contain any initial-fill water
+            else # mode == :bwd
+                # this is the first frontwall, that comes from the load
+                tau1_mixture = findfirst(!isnan, sr[l, :tau1_load])
+                k₀_dict[l] = isnothing(tau1_mixture) ? nothing : tau1_mixture + 1 # we have to take +1, because k₀ doesn't contain any initial-fill water
+            end
+        end
+        if length(label) == 1
+            return first(values(k₀_dict)) # return single Int if only one label was requested
+        else
+            return k₀_dict # return Dict if multiple labels were requested
+        end
+    else # mode == :bwd, we have only one vector of delays, label is ignored
+        if !isnothing(label)
+            @warn "Label argument is ignored in :bwd mode, because there is only one producer return temperature time series."
+        end
+        tau1_mixture = findfirst(!isnan, sr[:tau1_producer])
+        return isnothing(tau1_mixture) ? nothing : tau1_mixture + 1 # we have to take +1, because k₀ doesn't contain any initial-fill water
     end
 end
+get_k0 = get_k₀  # alias with ASCII character
+
 
 # ------------------------------------------------ #
 # SIMULATION FUNCTIONS
