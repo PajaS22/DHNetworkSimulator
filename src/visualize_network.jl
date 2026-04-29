@@ -690,3 +690,8 @@ function visualize_graph!(nw::Network;
     return f, ax, p
 end
 
+function draw(nw::Network; kwargs...)
+    f, ax, p = visualize_graph!(nw; kwargs...)
+    display(f)
+    return f
+end

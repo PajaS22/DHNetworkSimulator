@@ -50,7 +50,7 @@ export heat_resistance_forward!, heat_resistance_backward!
 include("printing.jl")
 
 include("visualize_network.jl")
-export visualize_graph!
+export visualize_graph!, draw
 export NodeHighlight, highlight_nodes!, reset_highlights!
 export EdgeHighlight, highlight_edges!, reset_edge_highlights!
 export edge_info, edge_info_hover, edge_infos
