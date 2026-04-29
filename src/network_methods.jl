@@ -271,29 +271,49 @@ end
 
 """Check that a load function is non-negative and bounded over a temperature range.
 
-Evaluates `fn(params, T_a)` at every point in `T_a_range` (default –30 °C to 30 °C in 1 °C steps)
-and raises an error if any value is **negative** (power cannot flow back from the consumer into
-the network) or **not finite** (unbounded load function).
+Evaluates the function at a grid of sample points determined by the active flags and raises
+an error if any value is **negative** or **not finite**.
 
 # Arguments
-- `fn`: load function with signature `fn(params::Vector{Float64}, T_a::Float64) -> Float64` (kW).
+- `fn`: load function. Signature depends on the flags (see [`LoadSpec`](@ref)).
 - `params`: parameter vector passed to `fn`.
-- `T_a_range`: temperature sample points for validation. Widen or narrow this range to match your
-  network's operating envelope. Default: `-30.0:1.0:30.0`.
+- `T_a_range`: ambient temperature sample points. Default: `-30.0:1.0:30.0`.
+- `use_mass_flow`: whether `fn` takes mass flow as a third argument.
+- `mass_flow_refs`: mass flow sample values used when `use_mass_flow = true`.
+- `use_time`: whether `fn` takes a time-step index as a final integer argument.
+- `time_refs`: integer time-step sample values used when `use_time = true`. Default: `1:10`.
 """
 function validate_load_spec(fn::Function, params::Vector{Float64};
                              T_a_range=-30.0:1.0:30.0,
                              use_mass_flow::Bool=false,
-                             mass_flow_refs::Vector{Float64}=[0.5, 1.0, 5.0])
-    if use_mass_flow
+                             mass_flow_refs::Vector{Float64}=[0.5, 1.0, 5.0],
+                             use_time::Bool=false,
+                             time_refs::AbstractVector{Int}=collect(1:10))
+    if use_mass_flow && use_time
+        for T_a in T_a_range, m in mass_flow_refs, t in time_refs
+            v = fn(params, Float64(T_a), m, t)
+            ismissing(v) && continue
+            v < 0.0    && error("Load function returns negative power ($v kW) at T_ambient = $T_a °C, mass_flow = $m kg/s, time = $t. Power demand must be ≥ 0.")
+            !isfinite(v) && error("Load function returns non-finite power ($v kW) at T_ambient = $T_a °C, mass_flow = $m kg/s, time = $t.")
+        end
+    elseif use_mass_flow
         for T_a in T_a_range, m in mass_flow_refs
             v = fn(params, Float64(T_a), m)
+            ismissing(v) && continue
             v < 0.0    && error("Load function returns negative power ($v kW) at T_ambient = $T_a °C, mass_flow = $m kg/s. Power demand must be ≥ 0.")
             !isfinite(v) && error("Load function returns non-finite power ($v kW) at T_ambient = $T_a °C, mass_flow = $m kg/s.")
+        end
+    elseif use_time
+        for T_a in T_a_range, t in time_refs
+            v = fn(params, Float64(T_a), t)
+            ismissing(v) && continue
+            v < 0.0    && error("Load function returns negative power ($v kW) at T_ambient = $T_a °C, time = $t. Power demand must be ≥ 0.")
+            !isfinite(v) && error("Load function returns non-finite power ($v kW) at T_ambient = $T_a °C, time = $t.")
         end
     else
         for T_a in T_a_range
             v = fn(params, Float64(T_a))
+            ismissing(v) && continue
             v < 0.0    && error("Load function returns negative power ($v kW) at T_ambient = $T_a °C. Power demand must be ≥ 0.")
             !isfinite(v) && error("Load function returns non-finite power ($v kW) at T_ambient = $T_a °C.")
         end
@@ -302,24 +322,24 @@ end
 
 """Set the power demand function and parameters for a single load node.
 
-Validates the function over `T_a_range` before storing. The function must have signature
-`fn(params::Vector{Float64}, T_a::Float64) -> Float64` and return power in **kW**.
-It must be non-negative and finite over the validation range.
+Validates the function over `T_a_range` before storing. The function must return power in **kW**
+and be non-negative and finite over the validation range. The expected signature depends on the
+flags — see [`LoadSpec`](@ref) and [`validate_load_spec`](@ref).
 
 See also: [`set_load_params!`](@ref), [`validate_load_spec`](@ref).
 """
 function set_load_fn!(nw::Network, label::String, fn::Function, params::AbstractVector{<:Real};
-                      T_a_range=-30.0:1.0:30.0, use_mass_flow::Bool=false)
+                      T_a_range=-30.0:1.0:30.0, use_mass_flow::Bool=false, use_time::Bool=false)
     has_label(nw, label) || error("Node with label $label does not exist in the network.")
     node = nw[label]
     node isa LoadNode || error("Node with label $label is not a load node.")
     p = Vector{Float64}(params)  # always copy so each node owns its params
     try
-        validate_load_spec(fn, p; T_a_range=T_a_range, use_mass_flow=use_mass_flow)
+        validate_load_spec(fn, p; T_a_range=T_a_range, use_mass_flow=use_mass_flow, use_time=use_time)
     catch e
         error("$label power validation failed: $(e.msg)")
     end
-    node.load = LoadSpec(fn, p, use_mass_flow)
+    node.load = LoadSpec(fn, p, use_mass_flow, use_time)
     nw[label] = node
 end
 
@@ -328,9 +348,9 @@ end
 See also: [`set_load_fn!`](@ref).
 """
 function set_load_fn!(nw::Network, fn::Function, params::AbstractVector{<:Real};
-                      T_a_range=-30.0:1.0:30.0, use_mass_flow::Bool=false)
+                      T_a_range=-30.0:1.0:30.0, use_mass_flow::Bool=false, use_time::Bool=false)
     for label in nw.load_labels
-        set_load_fn!(nw, label, fn, params; T_a_range=T_a_range, use_mass_flow=use_mass_flow)
+        set_load_fn!(nw, label, fn, params; T_a_range=T_a_range, use_mass_flow=use_mass_flow, use_time=use_time)
     end
 end
 
@@ -342,16 +362,16 @@ node is updated — if any validation fails, no nodes are changed.
 See also: [`set_load_fn!`](@ref).
 """
 function set_load_fn!(nw::Network, fn::Function, params_dict::Dict{String, <:AbstractVector{<:Real}};
-                      T_a_range=-30.0:1.0:30.0, use_mass_flow::Bool=false)
+                      T_a_range=-30.0:1.0:30.0, use_mass_flow::Bool=false, use_time::Bool=false)
     # validate all first so we don't partially update the network on error
     for (label, params) in params_dict
         has_label(nw, label) || error("Node with label $label does not exist in the network.")
         nw[label] isa LoadNode || error("Node with label $label is not a load node.")
-        validate_load_spec(fn, convert(Vector{Float64}, params); T_a_range=T_a_range, use_mass_flow=use_mass_flow)
+        validate_load_spec(fn, convert(Vector{Float64}, params); T_a_range=T_a_range, use_mass_flow=use_mass_flow, use_time=use_time)
     end
     for (label, params) in params_dict
         node = nw[label]
-        node.load = LoadSpec(fn, convert(Vector{Float64}, params), use_mass_flow)
+        node.load = LoadSpec(fn, convert(Vector{Float64}, params), use_mass_flow, use_time)
         nw[label] = node
     end
 end

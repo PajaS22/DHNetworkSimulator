@@ -633,4 +633,59 @@
         @test !any(isnan, sr.T_load_out)
     end
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # Time-dependent load functions
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @testset "time-dependent load: power varies by step" begin
+        # Load function that returns step-proportional power (ignores T_a).
+        # Steps 1..N each produce step * 1.0 kW → power at step i is i kW.
+        nw = make_network()
+        step_fn = (params, T_a, step) -> Float64(step) * params[1]
+        set_load_fn!(nw, "load1", step_fn, [1.0]; use_time=true)
+        set_load_fn!(nw, "load2", step_fn, [1.0]; use_time=true)
+
+        policy = (ts, Ta, Tb) -> ProducerOutput(mass_flow=10.0, temperature=80.0)
+        sr = run_simulation(nw, t, policy; mode=:full, ambient_temperature=Tₐ)
+
+        @test length(sr) == N
+        # power_load is in kW; at step i it should be i kW (all loads share the same fn)
+        for i in 1:N
+            @test sr.power_load[i, 1] ≈ Float64(i) atol=1e-6
+            @test sr.power_load[i, 2] ≈ Float64(i) atol=1e-6
+        end
+    end
+
+    @testset "time-dependent load: lookup_load_spec" begin
+        # Use the look-up constructor: first half of steps consume 500 kW, rest consume 0.
+        half = div(N, 2)
+        vals = [fill(500.0, half); fill(0.0, N - half)]
+        nw = make_network()
+        nw["load1"].load = lookup_load_spec(vals)
+        nw["load2"].load = lookup_load_spec(vals)
+
+        policy = (ts, Ta, Tb) -> ProducerOutput(mass_flow=10.0, temperature=80.0)
+        sr = run_simulation(nw, t, policy; mode=:full, ambient_temperature=Tₐ)
+
+        # First half: non-zero power; second half: zero power
+        @test all(sr.power_load[1:half, :] .≈ 500.0)
+        @test all(sr.power_load[half+1:end, :] .≈ 0.0)
+    end
+
+    @testset "time-dependent load: missing beyond vector returns 0 W" begin
+        # A look-up vector shorter than the simulation; steps beyond it consume 0.
+        short_vals = [200.0, 300.0]   # only 2 steps defined; sim has N steps
+        nw = make_network()
+        nw["load1"].load = lookup_load_spec(short_vals)
+        nw["load2"].load = lookup_load_spec(short_vals)
+
+        policy = (ts, Ta, Tb) -> ProducerOutput(mass_flow=10.0, temperature=80.0)
+        sr = run_simulation(nw, t, policy; mode=:full, ambient_temperature=Tₐ)
+
+        @test sr.power_load[1, 1] ≈ 200.0
+        @test sr.power_load[2, 1] ≈ 300.0
+        # All steps beyond the vector length consume 0 kW
+        @test all(sr.power_load[3:end, :] .≈ 0.0)
+    end
+
 end

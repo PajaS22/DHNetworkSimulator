@@ -183,24 +183,36 @@ end
 
 """Load specification pairing a power demand function with its parameters.
 
-The load function can depend on ambient temperature alone, or on both ambient temperature
-and the load's instantaneous mass flow (e.g. [`general_hockey_load`](@ref)).
+The load function can depend on ambient temperature alone, or additionally on the
+instantaneous mass flow (e.g. [`general_hockey_load`](@ref)) and/or the simulation
+time step index.
 
 ```julia
 mutable struct LoadSpec
     fn::Function
     params::Vector{Float64}
     use_mass_flow::Bool
+    use_time::Bool
 end
 ```
 
+The call signature dispatched by [`power_consumption`](@ref) depends on the flags:
+
+| `use_mass_flow` | `use_time` | signature |
+|:---:|:---:|:---|
+| `false` | `false` | `fn(params, T_a)` |
+| `true`  | `false` | `fn(params, T_a, mass_flow)` |
+| `false` | `true`  | `fn(params, T_a, time_index)` |
+| `true`  | `true`  | `fn(params, T_a, mass_flow, time_index)` |
+
+where `mass_flow` is the steady-state mass flow [kg/s] at the load node and
+`time_index` is the 1-based integer simulation step index.
+
 # Fields
-- `fn::Function`: demand function. When `use_mass_flow = false`, called as
-  `fn(params, T_a) -> Float64` [kW]. When `use_mass_flow = true`, called as
-  `fn(params, T_a, mass_flow) -> Float64` [kW], where `mass_flow` is the
-  steady-state mass flow [kg/s] at the load node.
-- `params::Vector{Float64}`: current parameters passed to `fn`.
-- `use_mass_flow::Bool`: whether the function takes mass flow as a third argument.
+- `fn::Function`: demand function (see table above); must return power in **kW**.
+- `params::Vector{Float64}`: parameters passed as the first argument to `fn`.
+- `use_mass_flow::Bool`: whether `fn` takes `mass_flow` as a third argument.
+- `use_time::Bool`: whether `fn` takes `time_index` as a final integer argument.
 
 See also: [`polynomial_load`](@ref), [`hockey_load`](@ref), [`general_hockey_load`](@ref),
 [`set_load_fn!`](@ref), [`set_load_params!`](@ref), [`validate_load_spec`](@ref).
@@ -209,14 +221,16 @@ See also: [`polynomial_load`](@ref), [`hockey_load`](@ref), [`general_hockey_loa
 - `LoadSpec()`: default `polynomial_load` with `DEFAULT_LOAD_PARAMS`.
 - `LoadSpec(params::Vector{<:Real})`: `polynomial_load` with custom parameter vector.
 - `LoadSpec(p₀, p₁, ...)`: `polynomial_load` with parameters given as individual numbers.
-- `LoadSpec(fn, params::Vector{<:Real})`: explicit function + parameter vector (converts element type).
-- `LoadSpec(fn, p₀, p₁, ...)`: explicit function with parameters as individual numbers.
+- `LoadSpec(fn, params::Vector{<:Real}; use_mass_flow=false, use_time=false)`: explicit function + parameter vector with optional flags.
+- `LoadSpec(fn, p₀, p₁, ...)`: explicit function with parameters as individual numbers (both flags default to `false`).
 - `LoadSpec(hockey_load; a, b, T_b)`: keyword form for `hockey_load` — base load, slope, balance-point temperature.
+- [`lookup_load_spec(power_values)`](@ref): captures a per-step power trajectory (kW) in a closure; returns `missing` (treated as 0 W) for steps beyond the vector length.
 """
 mutable struct LoadSpec
     fn::Function
     params::Vector{Float64}
     use_mass_flow::Bool
+    use_time::Bool
 end
 
 # Load Node: heat consumer
@@ -592,12 +606,35 @@ SumpNode() = SumpNode("sump")
 
 # LOAD NODE CONSTRUCTORS
 const DEFAULT_LOAD_PARAMS = [540.0, -36.0, 0.6]  # default quadratic polynomial coefficients (kW vs °C)
-LoadSpec() = LoadSpec(polynomial_load, copy(DEFAULT_LOAD_PARAMS), false)
-LoadSpec(params::Vector{<:Real})       = LoadSpec(polynomial_load, Vector{Float64}(params), false)
-LoadSpec(params::Real...)              = LoadSpec(polynomial_load, collect(Float64, params), false)
-LoadSpec(fn::Function, params::Vector{<:Real}) = LoadSpec(fn, Vector{Float64}(params), false)
-LoadSpec(fn::Function, params::Real...) = LoadSpec(fn, collect(Float64, params), false)
-LoadSpec(::typeof(hockey_load); a::Real, b::Real, T_b::Real) = LoadSpec(hockey_load, [Float64(a), Float64(b), Float64(T_b)], false)
+LoadSpec() = LoadSpec(polynomial_load, copy(DEFAULT_LOAD_PARAMS), false, false)
+LoadSpec(params::Vector{<:Real})       = LoadSpec(polynomial_load, Vector{Float64}(params), false, false)
+LoadSpec(params::Real...)              = LoadSpec(polynomial_load, collect(Float64, params), false, false)
+LoadSpec(fn::Function, params::Vector{<:Real}; use_mass_flow::Bool=false, use_time::Bool=false) = LoadSpec(fn, Vector{Float64}(params), use_mass_flow, use_time)
+LoadSpec(fn::Function, params::Real...) = LoadSpec(fn, collect(Float64, params), false, false)
+LoadSpec(::typeof(hockey_load); a::Real, b::Real, T_b::Real) = LoadSpec(hockey_load, [Float64(a), Float64(b), Float64(T_b)], false, false)
+
+"""    lookup_load_spec(power_values::Vector{Float64}) -> LoadSpec
+
+Build a time-indexed look-up [`LoadSpec`](@ref) from a pre-computed power trajectory.
+
+The power values (in **kW**) are captured in a closure; the `params` field of the returned
+`LoadSpec` is empty. The internal function has signature `fn(params, T_a, t) -> Union{Float64, Missing}`:
+it ignores ambient temperature and returns `power_values[t]` for steps `1 ≤ t ≤ length(power_values)`,
+and `missing` for any step beyond that range — [`power_consumption`](@ref) treats `missing` as 0 W.
+
+```julia
+# 10-step trajectory: constant 100 kW for the first 5 steps, 200 kW for the next 5
+spec = lookup_load_spec([fill(100.0, 5); fill(200.0, 5)])
+node.load = spec
+```
+
+See also: [`LoadSpec`](@ref), [`power_consumption`](@ref).
+"""
+function lookup_load_spec(power_values::Vector{Float64})
+    vals = copy(power_values)
+    fn = (params::Vector{Float64}, T_a::Float64, t::Int) -> t <= length(vals) ? vals[t] : missing
+    return LoadSpec(fn, Float64[], false, true)
+end
 
 LoadNode(info::String; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info), load, missing)
 LoadNode(info::String, m_rel::Float64; load::LoadSpec=LoadSpec()) = LoadNode(NodeCommon(info), load, m_rel)

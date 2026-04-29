@@ -124,6 +124,7 @@ DHNetworkSimulator.merge_water_plug_vectors!
 DHNetworkSimulator.polynomial_load
 DHNetworkSimulator.hockey_load
 DHNetworkSimulator.general_hockey_load
+DHNetworkSimulator.lookup_load_spec
 DHNetworkSimulator.validate_load_spec
 DHNetworkSimulator.set_load_fn!
 DHNetworkSimulator.set_load_m_rel!

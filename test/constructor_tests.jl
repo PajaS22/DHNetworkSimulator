@@ -254,4 +254,46 @@
         @test m_rel(pipe, 99) == 5.0
     end
 
+    @testset "LoadSpec use_time constructors" begin
+        # fn + params with use_time=true
+        my_fn = (params, T_a, t) -> max(0.0, params[1] - t * 1.0)
+        spec = LoadSpec(my_fn, [100.0]; use_time=true)
+        @test spec.use_time == true
+        @test spec.use_mass_flow == false
+        @test spec.fn === my_fn
+        @test spec.params == [100.0]
+
+        # fn + params with both flags
+        my_fn2 = (params, T_a, m, t) -> max(0.0, params[1] * m - t * 1.0)
+        spec2 = LoadSpec(my_fn2, [10.0]; use_mass_flow=true, use_time=true)
+        @test spec2.use_time == true
+        @test spec2.use_mass_flow == true
+
+        # default constructors keep both flags false
+        @test LoadSpec().use_time == false
+        @test LoadSpec([1.0, 2.0]).use_time == false
+        @test LoadSpec(hockey_load; a=50.0, b=5.0, T_b=15.0).use_time == false
+    end
+
+    @testset "lookup_load_spec" begin
+        vals = [100.0, 200.0, 150.0]
+        spec = lookup_load_spec(vals)
+        @test spec.use_time == true
+        @test spec.use_mass_flow == false
+        @test isempty(spec.params)   # values are captured in closure, not in params
+
+        # in-range steps return the stored value (ignores T_a)
+        @test spec.fn(Float64[], 0.0, 1) == 100.0
+        @test spec.fn(Float64[], 99.9, 2) == 200.0
+        @test spec.fn(Float64[], -5.0, 3) == 150.0
+
+        # out-of-range step returns missing
+        @test ismissing(spec.fn(Float64[], 0.0, 4))
+        @test ismissing(spec.fn(Float64[], 0.0, 100))
+
+        # original vector is not aliased
+        vals[1] = 999.0
+        @test spec.fn(Float64[], 0.0, 1) == 100.0
+    end
+
 end

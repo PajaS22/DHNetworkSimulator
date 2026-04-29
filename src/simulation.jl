@@ -515,7 +515,7 @@ function run_simulation(
         if mode == :full
             for load_label in keys(return_plugs)
                 col = load_labels_cols[load_label]
-                P = power_consumption(network[load_label], Tₐ)
+                P = power_consumption(network[load_label], Tₐ, i)
                 results_power_consumption[i, col] = P / 1000.0   # kW
                 consume_power!(return_plugs[load_label], P, Δt) && push!(clamped_loads, load_label)
                 results_temperature_load_out[i, col] = return_plugs[load_label].T
@@ -1171,7 +1171,8 @@ function set_load_params!(nw::Network, label::String, params::AbstractVector{<:R
     node isa LoadNode || error("Node with label $label is not a load node.")
     ismissing(node.load) && error("No load function set on node $label. Use set_load_fn! first.")
     p = convert(Vector{Float64}, params)
-    validate_load_spec(node.load.fn, p; T_a_range=T_a_range)
+    validate_load_spec(node.load.fn, p; T_a_range=T_a_range,
+                       use_mass_flow=node.load.use_mass_flow, use_time=node.load.use_time)
     node.load.params = p
     nw[label] = node
 end
@@ -1201,24 +1202,36 @@ function apply_exit_heat_loss!(p::Plug, k_entry::Float64, k_exit::Float64, d::Fl
     end
 end
 
-"""Compute load power demand as a function of outdoor temperature (and optionally mass flow).
+"""Compute load power demand for a single time step.
 
-When `node.load.use_mass_flow` is `false`, calls `node.load.fn(node.load.params, Tₐ)`.
-When `node.load.use_mass_flow` is `true`, calls `node.load.fn(node.load.params, Tₐ, mass_flow)`
-where `mass_flow` is taken from `node.common.mass_flow` (set by `steady_state_hydrodynamics!`).
+Dispatches to the load function with the arguments dictated by `node.load.use_mass_flow`
+and `node.load.use_time` (see [`LoadSpec`](@ref)).
+
+- `Tₐ::Float64` — ambient temperature in °C.
+- `step::Int` — 1-based simulation step index, passed to the function when `use_time = true`.
 
 Returns power in **Watts** (the load function returns kW — conversion is handled internally).
 The result is clamped to zero to prevent negative power (energy flowing back into the network).
 """
-function power_consumption(node::LoadNode, Tₐ::Float64)::Float64
-    if node.load.use_mass_flow
+function power_consumption(node::LoadNode, Tₐ::Float64, step::Int=1)::Float64
+    v = if node.load.use_mass_flow && node.load.use_time
         m = mass_flow(node)
-        return max(0.0, node.load.fn(node.load.params, Tₐ, m)) * 1000.0
+        node.load.fn(node.load.params, Tₐ, m, step)
+    elseif node.load.use_mass_flow
+        m = mass_flow(node)
+        node.load.fn(node.load.params, Tₐ, m)
+    elseif node.load.use_time
+        node.load.fn(node.load.params, Tₐ, step)
     else
-        return max(0.0, node.load.fn(node.load.params, Tₐ)) * 1000.0
+        node.load.fn(node.load.params, Tₐ)
     end
+    if ismissing(v)
+        @warn "Load function for node $(node.common.info) returned missing value at step $step. Treating as zero power consumption."
+        return 0.0   # out-of-range step (e.g. lookup vector shorter than sim length)
+    end
+    return max(0.0, Float64(v)) * 1000.0
 end
-power_consumption(node::LoadNode, Tₐ::Nothing) = 0.0
+power_consumption(node::LoadNode, Tₐ::Nothing, ::Int=1) = 0.0
 
 
 """Reduce a plug temperature by consuming `power` over a time step.
@@ -1363,7 +1376,7 @@ function time_step_thermal_dynamics!(nw::Network, Δt::Float64, input::ProducerO
         Tₐ_load = ambient_temperature
         clamped = String[]
         for load_label in keys(output_plugs)
-            P = power_consumption(nw[load_label], Tₐ_load)
+            P = power_consumption(nw[load_label], Tₐ_load, step)
             consume_power!(output_plugs[load_label], P, Δt) && push!(clamped, load_label)
         end
         if !isempty(clamped)

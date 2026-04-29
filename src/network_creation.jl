@@ -206,7 +206,8 @@ end
 
 function fill_load_specs!(network::Network, load::LoadSpec; m_r::Real = 1.0)
     for label in network.load_labels
-        set_load_fn!(network, label, load.fn, load.params)
+        set_load_fn!(network, label, load.fn, load.params;
+                     use_mass_flow=load.use_mass_flow, use_time=load.use_time)
         set_load_m_rel!(network, label, Float64(m_r))
     end
 end
