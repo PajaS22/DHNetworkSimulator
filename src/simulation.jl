@@ -211,7 +211,16 @@ Base.length(sr::SimulationResults) = length(sr.time)
 Base.show(io::IO, sr::SimulationResults) = print(io, "SimulationResults with $(length(sr)) time steps, $(length(sr.load_labels)) load node(s) and $(length(sr.sump_labels)) sump node(s).")
 
 """
-k₀ is the first index of output at load with `label`, that doesn't contain any initial-fill water.
+k₀ is the first index of output, that doesnt contain any initial-fill water.
+
+```julia
+k₀ = get_k₀(sr::SimulationResults, mode::Symbol=:fwd; label::Union{Nothing, String, Vector{String}}=nothing)
+```
+
+# Arguments
+- `sr`: SimulationResults object.
+- `mode`: `:fwd` to get k₀ for forward (supply) pipes, `:bwd` for backward (return) pipes.
+- `label`: Optional label or vector of labels for specific load nodes. Ignored in `:bwd` mode (there is only one return path to the producer). If `nothing` (default), returns k₀ for all load nodes in `:fwd` mode.
 """
 function get_k₀(sr::SimulationResults, mode::Symbol=:fwd; label::Union{Nothing, String, Vector{String}}=nothing)::Union{Nothing, Int, Dict{String, Union{Nothing, Int}}}
     if mode ∉ (:fwd, :bwd)
