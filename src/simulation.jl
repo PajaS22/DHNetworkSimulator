@@ -710,60 +710,29 @@ function set_relative_mass_flows!(nw::Network, step::Union{Int, Nothing}=nothing
         end
     end
 
-    has_vector = any(l -> nw[l].m_rel isa Vector{Float64}, nw.load_labels)
-
-    if !isnothing(step)
-        _dfs_m_rel!(nw, step)
-        return
+    m_rel_sizes = Dict(l => nw[l].m_rel isa Vector{Float64} ? length(nw[l].m_rel) : 1 for l in nw.load_labels)
+    if length(unique(values(m_rel_sizes))) > 1
+        error("Inconsistent m_rel vector lengths among load nodes: $(m_rel_sizes). All load nodes must have m_rel of the same type (constant Float64 or Vector{Float64} of the same length).")
     end
+    unique_size = only(unique(values(m_rel_sizes)))
 
-    if !has_vector
-        _dfs_m_rel!(nw, 1)
-        return
-    end
+    @show unique_size
 
-    N = maximum(length(nw[l].m_rel) for l in nw.load_labels if nw[l].m_rel isa Vector{Float64})
-
-    # Per-step normalisation totals: totals[k] = sum of all leaf load m_rel at step k
-    totals = zeros(N)
-    for l in nw.load_labels
-        outdegree(nw, l) == 0 && (totals .+= nw[l].m_rel)
-    end
-    any(iszero, totals) && error("set_relative_mass_flows!: total m_rel is zero at one or more time steps — all leaf load m_rel values sum to zero. Check that every load node has positive m_rel at every step.")
-
-    # Pre-allocate Vector{Float64}(undef, N) on every pipe
-    for (src_lbl, dst_lbl) in MetaGraphsNext.edge_labels(nw.mg)
-        pipe = nw[src_lbl, dst_lbl]
-        if pipe isa InsulatedPipe || pipe isa ZeroPipe
-            pipe.m_rel = Vector{Float64}(undef, N)
-        end
-    end
-
-    # Single post-order DFS: fill entire m_rel vectors in one pass
-    root = nw.producer_label::String
-    stack = Vector{Tuple{String, Bool}}()
-    push!(stack, (root, false))
-    while !isempty(stack)
-        node, visited = pop!(stack)
-        if visited
-            nw[node] isa ProducerNode && continue
-            parent_node = inneighbors(nw, node)[1]
-            pipe = nw[parent_node, node]
-            if outdegree(nw, node) == 0
-                @assert nw[node] isa LoadNode "Leaf node $(nw[node].common.info) is not a LoadNode. Please check the network structure."
-                pipe.m_rel .= nw[node].m_rel ./ totals
-            elseif nw[node] isa JunctionNode || nw[node] isa SumpNode
-                fill!(pipe.m_rel, 0.0)
-                for child in outneighbors(nw, node)
-                    pipe.m_rel .+= nw[node, child].m_rel
-                end
-            end
+    for e in edges(nw.mg)
+        if unique_size == 1
+            nw[src(e), dst(e)].m_rel = 0.0
         else
-            push!(stack, (node, true))
-            for child in outneighbors(nw, node)
-                push!(stack, (child, false))
-            end
+            nw[src(e), dst(e)].m_rel = zeros(Float64, unique_size)
         end
+    end
+
+    if !isnothing(step) || unique_size == 1
+        _dfs_m_rel!(nw, something(step, 1))
+        return
+    end
+
+    for k in 1:unique_size
+        _dfs_m_rel!(nw, k)
     end
 end
 

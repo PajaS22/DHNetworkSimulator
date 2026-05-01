@@ -509,7 +509,7 @@ m_rel(n::NodeType) = n.m_rel
 
 # Internal helper: extract the scalar m_rel value for a pipe at the given step.
 _pipe_m_rel_at(m::Float64,          ::Int) = m
-_pipe_m_rel_at(m::Vector{Float64}, step::Int) = m[step]
+_pipe_m_rel_at(m::Vector{Float64}, step::Int) = length(m) == 1 ? m[1] : m[step]
 
 m_rel(e::InsulatedPipe, step::Int) = _pipe_m_rel_at(e.m_rel, step)
 
