@@ -6,6 +6,14 @@
 # nice printing of Network
 # ------------------------------------------------ #
 
+function Base.show(io::IO, ::MIME"text/plain", nw::Network)
+    # concise summary used by the REPL/display system
+    n_nodes = nv(nw)
+    n_edges = ne(nw)
+    n_loads = ismissing(nw.load_labels) ? 0 : length(nw.load_labels)
+    print(io, "DH Network with $(n_loads) loads, $(n_edges) edges and $(n_nodes) nodes")
+end
+
 function Base.show(io::IO, nw::Network)
     println(io, "DH Network:")
     println(io, " Number of nodes: ", nv(nw))

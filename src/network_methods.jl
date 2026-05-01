@@ -376,6 +376,7 @@ function set_load_fn!(nw::Network, fn::Function, params_dict::Dict{String, <:Abs
     end
 end
 
+
 function set_load_spec!(nw::Network, label::String, spec::LoadSpec)
     has_label(nw, label) || error("Node with label $label does not exist in the network.")
     node = nw[label]
@@ -423,6 +424,16 @@ function set_load_m_rel!(nw::Network, label::String, m_rel::Vector{Float64})
     end
     node.m_rel = m_rel
     nw[label] = node
+end
+
+function set_load_m_rel!(nw::Network, m_rel::Dict{String, Float64})
+    if Set(keys(m_rel)) != Set(nw.load_labels)
+        ArgumentError("Keys of m_rel dictionary must match load_labels exactly. Expected keys: $(nw.load_labels), got: $(keys(m_rel))")
+    end
+    
+    for label in nw.load_labels
+        set_load_m_rel!(nw, label, m_rel[label])
+    end
 end
 
 # ------------------------------------------------ #
