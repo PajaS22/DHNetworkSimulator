@@ -378,7 +378,8 @@ function run_simulation(
         T_return_inject     :: Union{Dict{String, Vector{Float64}}, Nothing} = nothing,
         T0_f                :: Union{Float64, Missing} = missing,
         T0_b                :: Union{Float64, Missing} = missing,
-        ambient_temperature :: Union{Vector{Float64}, Nothing} = nothing) :: SimulationResults
+        ambient_temperature :: Union{Vector{Float64}, Nothing} = nothing,
+        verbose = false) :: SimulationResults
 
     check_network!(network)
 
@@ -484,8 +485,14 @@ function run_simulation(
     results_tau1_producer            = fill(NaN, N)
     results_tau2_producer            = fill(NaN, N)
 
+    if verbose
+        @info("Starting simulation with mode=:$mode, N=$N time steps, Δt=$(round(Δt, sigdigits=3)) seconds, T_a=$(isnothing(ambient_temperature) ? "nothing" : length(ambient_temperature))).")
+    end
+
     # ---- time loop ----
     for i in 1:N
+        verbose && @info("Time step $i / $N: t = $(sim_time[i])")
+
         Tₐ = isnothing(ambient_temperature) ? nothing : ambient_temperature[i]
 
         # policy dispatch
@@ -499,6 +506,8 @@ function run_simulation(
 
         results_temperature_producer_out[i] = isnothing(input.temperature) ? NaN : input.temperature
         results_mass_flow_producer[i] = input.mass_flow
+
+        verbose && @info("Setting absolute mass flows.")
 
         # hydraulics: m_rel already precomputed; only propagate absolute flows
         set_absolute_mass_flows!(network, input.mass_flow, i)
@@ -517,6 +526,7 @@ function run_simulation(
         # forward thermal (all modes except :backward_only)
         if mode != :backward_only
             sump_plugs_f = Dict{String, Plug}()
+            verbose && @info("Advancing forward thermal dynamics.")
             output_plugs = time_step_thermal_dynamics_forward!(network, Δt, i, input.temperature, Tₐ; sump_plugs=sump_plugs_f)
             for (load_label, plug) in output_plugs
                 col = load_labels_cols[load_label]
@@ -538,6 +548,7 @@ function run_simulation(
 
         # load-model power (:full only)
         if mode == :full
+            verbose && @info("Calculating load power consumption and preparing return plugs.")
             for load_label in keys(return_plugs)
                 col = load_labels_cols[load_label]
                 P = power_consumption(network[load_label], Tₐ, i)
@@ -549,6 +560,7 @@ function run_simulation(
 
         # inject measured return temperatures (:backward_only and :hybrid)
         if mode ∈ (:backward_only, :hybrid)
+            verbose && @info("Injecting measured return temperatures.")
             for (label, col) in load_labels_cols
                 haskey(T_return_inject, label) || continue
                 m_mass = results_mass_flow_load[i, col] * Δt
@@ -584,6 +596,7 @@ function run_simulation(
 
         # backward thermal (all modes except :forward_only)
         if mode != :forward_only && !isempty(return_plugs)
+            verbose && @info("Advancing backward thermal dynamics.")
             sump_plugs_b = !isnothing(results_T_sump_b) ? Dict{String, Plug}() : nothing
             incoming_plug = time_step_thermal_dynamics_backward!(network, Δt, i, return_plugs, Tₐ; sump_plugs=sump_plugs_b)
             results_temperature_producer_in[i] = incoming_plug.T
@@ -598,7 +611,7 @@ function run_simulation(
     end
 
     # ---- warn once about clamped return temperatures ----
-    if !isempty(clamped_loads)
+    if verbose && !isempty(clamped_loads)
         labels_str = join(sort(collect(clamped_loads)), ", ")
         @warn "Return temperature was clamped to the minimum ($(MINIMAL_RETURN_TEMPERATURE) °C) at one or more time steps for load(s): $labels_str"
     end
@@ -612,7 +625,7 @@ function run_simulation(
         @. (results_temperature_producer_out[2:end] - results_temperature_producer_in[1:end-1]) *
            results_mass_flow_producer[1:end-1] * WATER_SPECIFIC_HEAT / 1_000_000.0
     end
-
+    verbose && @info("Simulation completed. Returning results struct.")
     return SimulationResults(
         time               = sim_time,
         mass_flow_load     = results_mass_flow_load,
@@ -716,6 +729,7 @@ function set_relative_mass_flows!(nw::Network, step::Union{Int, Nothing}=nothing
     for l in nw.load_labels
         outdegree(nw, l) == 0 && (totals .+= nw[l].m_rel)
     end
+    any(iszero, totals) && error("set_relative_mass_flows!: total m_rel is zero at one or more time steps — all leaf load m_rel values sum to zero. Check that every load node has positive m_rel at every step.")
 
     # Pre-allocate Vector{Float64}(undef, N) on every pipe
     for (src_lbl, dst_lbl) in MetaGraphsNext.edge_labels(nw.mg)
@@ -768,6 +782,7 @@ end
 function _dfs_m_rel!(nw::Network, step::Int)
     root = nw.producer_label::String
     total_m_rel = sum(_load_m_rel(nw[l].m_rel, step) for l in nw.load_labels if outdegree(nw, l) == 0)
+    iszero(total_m_rel) && error("_dfs_m_rel!: total m_rel is zero at step=$step. All leaf load m_rel values sum to zero — ensure every load node has positive m_rel.")
     stack = Vector{Tuple{String, Bool}}()
     push!(stack, (root, false))
     while !isempty(stack)
@@ -1066,6 +1081,7 @@ function collect_exiting_water_plugs!(
 )::Vector{Plug}
     exited_plugs = Vector{Plug}()
     M_exit = mass_flow * Δt
+    isnan(M_exit) && error("collect_exiting_water_plugs!: mass_flow is NaN (step=$step). This usually means a pipe's m_rel was computed as NaN — check that all load m_rel values are positive and sum to a nonzero total.")
     if M_exit <= 0.0
         return exited_plugs
     end

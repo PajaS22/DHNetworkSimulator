@@ -45,6 +45,7 @@ export validate_load_spec, set_load_fn!, set_load_m_rel!, set_m_rel!
 export info, info!
 export position!, position, positions, distance
 export heat_resistance_forward!, heat_resistance_backward!
+export set_load_spec!
 
 
 include("printing.jl")

@@ -376,6 +376,15 @@ function set_load_fn!(nw::Network, fn::Function, params_dict::Dict{String, <:Abs
     end
 end
 
+function set_load_spec!(nw::Network, label::String, spec::LoadSpec)
+    has_label(nw, label) || error("Node with label $label does not exist in the network.")
+    node = nw[label]
+    node isa LoadNode || error("Node with label $label is not a load node.")
+    validate_load_spec(spec.fn, spec.params; T_a_range=-30.0:1.0:30.0, use_mass_flow=spec.use_mass_flow, use_time=spec.use_time)
+    node.load = spec
+    nw[label] = node
+end
+
 """Set the relative mass-flow coefficient `m_rel` for a single load node.
 
 `m_rel` is a dimensionless fraction relative to the total producer mass flow.
