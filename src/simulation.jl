@@ -36,16 +36,16 @@ end
     - `Vector{DateTime}`: absolute timestamps.
 - `mass_flow_load`: load mass flows in kg/s. Size `N × nloads`.
 - `mass_flow_producer`: producer mass flow in kg/s. Length `N`.
-- `T_load_in`: temperature entering each load (supply side) in °C. Size `N × nloads`.
-- `T_load_out`: temperature leaving each load (return side) in °C. Size `N × nloads`. `Nothing` in forward-only mode.
-- `T_producer_in`: return temperature entering the producer in °C. Length `N`. `Nothing` in forward-only mode.
+- `T_load_in`: temperature entering each load (supply side) in °C. Size `N × nloads`. `NaN` when the exiting plug contains any initial-fill water (only when `T0_f=missing`, the default).
+- `T_load_out`: temperature leaving each load (return side) in °C. Size `N × nloads`. `Nothing` in forward-only mode. `NaN` when the return plug derives from initial-fill supply water.
+- `T_producer_in`: return temperature entering the producer in °C. Length `N`. `Nothing` in forward-only mode. `NaN` when the return plug contains any initial-fill water.
 - `T_producer_out`: supply temperature leaving the producer in °C. Length `N`.
 - `power_load`: load power consumption in kW. Size `N × nloads`. `Nothing` in forward-only mode.
 - `power_producer`: producer power output in MW (computed from mass flow and ΔT). Length `N-1`. `Nothing` in forward-only mode.
 - `load_labels`: mapping from load label to column index used in the `*_load` matrices.
 - `mass_flow_sump`: sump mass flows in kg/s. Size `N × nsumps`.
-- `T_sump_f`: supply (forward) temperature at each sump in °C. Size `N × nsumps`. `NaN` in backward-only mode.
-- `T_sump_b`: return (backward) temperature at each sump in °C. Size `N × nsumps`. `Nothing` in forward-only mode.
+- `T_sump_f`: supply (forward) temperature at each sump in °C. Size `N × nsumps`. `NaN` when the passing plug contains initial-fill water.
+- `T_sump_b`: return (backward) temperature at each sump in °C. Size `N × nsumps`. `Nothing` in forward-only mode. `NaN` when the passing plug contains initial-fill water.
 - `sump_labels`: mapping from sump label to column index used in the `*_sump` matrices.
 - `producer_label`: label of the producer node (used by the universal indexing aliases).
 - `m_rel_load`: relative mass-flow split coefficients at load nodes. Size `N × nloads`. `m_rel_load[i, j]` is the scalar `m_rel` value used at load `j` during time step `i`. For constant loads this column is uniform; for time-varying loads it captures the full trajectory.
@@ -86,16 +86,16 @@ struct SimulationResults
     time::Union{Vector{Float64}, Vector{DateTime}}  # time vector
     mass_flow_load::Matrix{Float64}         # mass flows at load nodes (rows: time steps, columns: load nodes)
     mass_flow_producer::Vector{Float64}     # mass flow at producer node
-    T_load_in::Matrix{Float64}              # temperatures at load nodes entering (rows: time steps, columns: load nodes)
-    T_load_out::Union{Matrix{Float64}, Nothing}     # temperatures at load nodes exiting (rows: time steps, columns: load nodes); Nothing in forward-only mode
-    T_producer_in::Union{Vector{Float64}, Nothing}  # input temperature entering producer node (after backward simulation step); Nothing in forward-only mode
+    T_load_in::Matrix{Float64}              # temperatures at load nodes entering (rows: time steps, columns: load nodes); NaN = initial-fill contamination (when T0_f=missing)
+    T_load_out::Union{Matrix{Float64}, Nothing}     # temperatures at load nodes exiting (rows: time steps, columns: load nodes); Nothing in forward-only mode; NaN = initial-fill contamination
+    T_producer_in::Union{Vector{Float64}, Nothing}  # input temperature entering producer node (after backward simulation step); Nothing in forward-only mode; NaN = initial-fill contamination
     T_producer_out::Vector{Float64}         # output temperature exiting producer node (before forward simulation step)
     power_load::Union{Matrix{Float64}, Nothing}     # (kW) power consumption at load nodes (rows: time steps, columns: load nodes); Nothing in forward-only mode
     power_producer::Union{Vector{Float64}, Nothing} # (MW) power output at producer node; Nothing in forward-only mode
     load_labels::Dict{String, Int}          # labels of load nodes corresponding to columns
     mass_flow_sump::Matrix{Float64}         # mass flows at sump nodes (rows: time steps, columns: sump nodes)
-    T_sump_f::Matrix{Float64}              # supply (forward) temperature at sump nodes; NaN in backward_only mode
-    T_sump_b::Union{Matrix{Float64}, Nothing}  # return (backward) temperature at sump nodes; Nothing in forward_only mode
+    T_sump_f::Matrix{Float64}              # supply (forward) temperature at sump nodes; NaN = initial-fill contamination (when T0_f=missing)
+    T_sump_b::Union{Matrix{Float64}, Nothing}  # return (backward) temperature at sump nodes; Nothing in forward_only mode; NaN = initial-fill contamination
     sump_labels::Dict{String, Int}          # labels of sump nodes corresponding to columns
     producer_label::String                  # label of the producer node
     m_rel_load::Matrix{Float64}             # relative mass-flow coefficients at load nodes (rows: time steps, columns: load nodes)
@@ -240,15 +240,16 @@ function get_k₀(sr::SimulationResults, mode::Symbol=:fwd; label::Union{Nothing
         # label is now a Vector{String}
         k₀_dict = Dict{String, Union{Nothing, Int}}()
         for l in label
-            if mode == :fwd
-                # this is the first backwall, that comes from the producer.
-                # Because frontwall is also the backwall of the previous plug, this exiting plug is a mixture of initial fill and producer water.
+            T_series = sr[l, :T_load_in]
+            if any(isnan, T_series)
+                # NaN-based detection (T0_f was missing): first non-NaN entry is k₀.
+                # No +1 needed: NaN means any contamination present, so the first clean step IS k₀.
+                k₀_dict[l] = findfirst(!isnan, T_series)
+            else
+                # tau-based detection (T0_f was a real value): first back-wall from producer,
+                # then +1 because that step still had mixed front-wall water.
                 tau2_mixture = findfirst(!isnan, sr[l, :tau2_load])
-                k₀_dict[l] = isnothing(tau2_mixture) ? nothing : tau2_mixture + 1 # we have to take +1, because k₀ doesn't contain any initial-fill water
-            else # mode == :bwd
-                # this is the first frontwall, that comes from the load
-                tau1_mixture = findfirst(!isnan, sr[l, :tau1_load])
-                k₀_dict[l] = isnothing(tau1_mixture) ? nothing : tau1_mixture + 1 # we have to take +1, because k₀ doesn't contain any initial-fill water
+                k₀_dict[l] = isnothing(tau2_mixture) ? nothing : tau2_mixture + 1
             end
         end
         if length(label) == 1
@@ -260,8 +261,19 @@ function get_k₀(sr::SimulationResults, mode::Symbol=:fwd; label::Union{Nothing
         if !isnothing(label)
             @warn "Label argument is ignored in :bwd mode, because there is only one producer return temperature time series."
         end
-        tau1_mixture = findfirst(!isnan, sr[:tau1_producer])
-        return isnothing(tau1_mixture) ? nothing : tau1_mixture + 1 # we have to take +1, because k₀ doesn't contain any initial-fill water
+        T_p_in = sr[:T_producer_in]
+        if isnothing(T_p_in)
+            return nothing
+        end
+        if any(isnan, T_p_in)
+            # NaN-based detection (T0_b was missing): exact, no +1 needed.
+            # NaN propagates through junction mixing, so this is more precise than tau weighting.
+            return findfirst(!isnan, T_p_in)
+        else
+            # tau-based detection (T0_b was a real value)
+            tau1_mixture = findfirst(!isnan, sr[:tau1_producer])
+            return isnothing(tau1_mixture) ? nothing : tau1_mixture + 1
+        end
     end
 end
 get_k0 = get_k₀  # alias with ASCII character
@@ -327,8 +339,12 @@ REPEAT for N time steps:
 - `mode`: simulation mode (`:full`, `:forward_only`, `:backward_only`, or `:hybrid`). Default `:full`.
 - `T_return_inject`: `Dict{String, Vector{Float64}}` mapping load labels to injected return
   temperatures [°C] at each time step. Required for `:backward_only` and `:hybrid` modes.
-- `T0_f`: initial temperature in the forward (supply) pipes [°C]. Default 60.0.
-- `T0_b`: initial temperature in the backward (return) pipes [°C]. Default 25.0.
+- `T0_f`: initial temperature in the forward (supply) pipes [°C]. Default `missing`: initial-fill
+  plugs carry `missing` temperature so any output that mixes them is also `missing` — used by
+  [`get_k₀`](@ref) to find the first clean step. Pass a `Float64` to pre-fill with a known value
+  instead (contamination is then invisible in temperatures but still detectable via `tau` fields).
+- `T0_b`: initial temperature in the backward (return) pipes [°C]. Default `missing` (same logic
+  as `T0_f`). Pass a `Float64` to pre-fill with a known value.
 - `ambient_temperature`: optional `Vector{Float64}` of ambient temperatures [°C], length N.
 
 # Returns
@@ -360,8 +376,8 @@ function run_simulation(
         policy   :: Union{Function, Vector{ProducerOutput}};
         mode                :: Symbol = :full,
         T_return_inject     :: Union{Dict{String, Vector{Float64}}, Nothing} = nothing,
-        T0_f                :: Float64 = 60.0,
-        T0_b                :: Float64 = 25.0,
+        T0_f                :: Union{Float64, Missing} = missing,
+        T0_b                :: Union{Float64, Missing} = missing,
         ambient_temperature :: Union{Vector{Float64}, Nothing} = nothing) :: SimulationResults
 
     check_network!(network)
@@ -845,10 +861,13 @@ end
 
 Fills every `InsulatedPipe` in the network with a single plug in the forward
 queue at `temperature_f` and a single plug in the backward queue at
-`temperature_b`.
+`temperature_b`. Pass `missing` (the default) to flag initial-fill plugs as
+contamination sources so that any output depending on them is also `missing`
+— enabling exact detection of the flush-out point via [`get_k₀`](@ref).
 """
-function fill_pipes_with_initial_temperature!(nw::Network, temperature_f::Float64, temperature_b::Float64)
-    # fill all pipes in the network with water at initial temperature, forward and backward have different T0
+function fill_pipes_with_initial_temperature!(nw::Network, temperature_f::Union{Float64, Missing}=missing, temperature_b::Union{Float64, Missing}=missing)
+    T_f = coalesce(temperature_f, NaN)  # missing → NaN so plugs stay Float64
+    T_b = coalesce(temperature_b, NaN)
     for e in edges(nw.mg)
         edge = nw[e.src, e.dst]
         if edge isa InsulatedPipe
@@ -859,8 +878,8 @@ function fill_pipes_with_initial_temperature!(nw::Network, temperature_f::Float6
             empty!(edge.plugs_f)
             empty!(edge.plugs_b)
             if m_total > 0
-                push!(edge.plugs_f, Plug(temperature_f, m_total))
-                push!(edge.plugs_b, Plug(temperature_b, m_total))
+                push!(edge.plugs_f, Plug(T_f, m_total))
+                push!(edge.plugs_b, Plug(T_b, m_total))
             end
         end
     end
@@ -1120,7 +1139,10 @@ function merge_same_temperature_plugs!(plugs::Vector{Plug}; tol::Float64=1e-3)
     current_plug = popfirst!(plugs)
     while !isempty(plugs)
         next_plug = popfirst!(plugs)
-        if abs(current_plug.T - next_plug.T) < tol
+        # merge if both NaN (same contamination marker) or both real and close in temperature
+        can_merge = (isnan(current_plug.T) && isnan(next_plug.T)) ||
+                    (!isnan(current_plug.T) && !isnan(next_plug.T) && abs(current_plug.T - next_plug.T) < tol)
+        if can_merge
             # merge plugs
             current_plug = combine_plugs([current_plug, next_plug])
         else
@@ -1253,6 +1275,7 @@ Returns `true` if the return temperature was clamped to `MINIMAL_RETURN_TEMPERAT
 function consume_power!(p::Plug, power::Float64, Δt::Float64)::Bool
     cₚ = WATER_SPECIFIC_HEAT  # specific heat capacity in J/(kg·K)
     ΔT = power * Δt / (p.m * cₚ)  # temperature drop in K
+    # NaN T (initial-fill contamination) propagates: NaN - ΔT = NaN, NaN < threshold = false
     if p.T - ΔT < MINIMAL_RETURN_TEMPERATURE
         p.T = MINIMAL_RETURN_TEMPERATURE
         return true

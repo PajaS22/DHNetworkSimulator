@@ -513,6 +513,9 @@ See also: [`m_rel`](@ref), [`set_load_m_rel!`](@ref), [`set_relative_mass_flows!
 function set_m_rel!(e::Union{InsulatedPipe, ZeroPipe}, value::Union{Float64, Vector{Float64}})
     e.m_rel = value
 end
+function set_m_rel!(n::NodeType, value::Union{Float64, Vector{Float64}})
+    n.m_rel = value
+end
 
 info(n::NodeType) = n.common.info
 info(e::Union{InsulatedPipe, ZeroPipe}) = e.info

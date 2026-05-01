@@ -321,7 +321,7 @@ Plugs are advected through pipes during time stepping and may be split/merged.
 
 ```julia
 mutable struct Plug
-    T::Float64  # Temperature at the plug [°C]
+    T::Float64  # Temperature at the plug [°C]; NaN = initial-fill contamination
     m::Float64  # mass of the plug [kg]
     k::Float64  # fractional step when the plug's midpoint entered the current pipe (0.0 = initial fill)
     t1::Float64 # 0-based step-unit injection time of the front (oldest) wall; NaN for initial fill
@@ -340,9 +340,14 @@ load on the return side). They are in 0-based step units: a plug injected during
 by mass, the time interval `[t1, t2]` is split in the same ratio. The transit delay for the
 front wall at exit step `k` is `(k − 1 − t1) · Δt` and for the back wall is `(k − t2) · Δt`.
 `NaN` signals initial-fill water with no known injection time.
+
+`T = NaN` marks a plug whose temperature originates (even partially) from the pipe's initial fill.
+NaN arithmetic is infectious: any temperature that mixes initial-fill and producer water also
+becomes `NaN`. This is used by [`get_k₀`](@ref) to identify the first simulation step that is
+completely free of initial-fill influence.
 """
 mutable struct Plug
-    T::Float64  # Temperature at the plug [°C]
+    T::Float64  # Temperature at the plug [°C]; NaN = initial-fill contamination
     m::Float64  # mass of the plug [kg]
     k::Float64  # fractional step when the plug's midpoint entered the current pipe (0.0 = initial fill)
     t1::Float64 # 0-based step-unit injection time of the front (oldest) wall; NaN for initial fill
@@ -351,11 +356,13 @@ end
 
 """    Plug(T, m)
 Convenience constructor — creates a plug with `k = 0.0`, `t1 = NaN`, `t2 = NaN` (initial fill).
+Pass `T = NaN` to flag the plug as an initial-fill contamination source.
 """
 Plug(T::Float64, m::Float64) = Plug(T, m, 0.0, NaN, NaN)
 
 """    Plug(T, m, k)
 Convenience constructor — creates a plug with given `k` and `t1 = NaN`, `t2 = NaN`.
+Pass `T = NaN` to flag the plug as an initial-fill contamination source.
 """
 Plug(T::Float64, m::Float64, k::Float64) = Plug(T, m, k, NaN, NaN)
 

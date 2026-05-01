@@ -196,7 +196,7 @@
         pvec = [ProducerOutput(10.0, 80.0) for _ in 1:N]
         sr2  = run_simulation(nw, t, pvec; mode=:forward_only)
         @test isnothing(sr2.T_producer_in)
-        @test !any(isnan, sr2.T_load_in)
+        @test !all(isnan, sr2.T_load_in)  # some steps are real (after initial fill flushes)
     end
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -369,8 +369,8 @@
             ProducerOutput(mass_flows[i], temps[i])
         end
 
-        sr_vec = run_simulation(nw1, t, pvec; mode=:full, ambient_temperature=Tₐ)
-        sr_fn  = run_simulation(nw2, t, pfn;  mode=:full, ambient_temperature=Tₐ)
+        sr_vec = run_simulation(nw1, t, pvec; mode=:full, ambient_temperature=Tₐ, T0_f=60.0, T0_b=25.0)
+        sr_fn  = run_simulation(nw2, t, pfn;  mode=:full, ambient_temperature=Tₐ, T0_f=60.0, T0_b=25.0)
 
         @test sr_vec.T_load_in      ≈ sr_fn.T_load_in      atol=1e-10
         @test sr_vec.T_producer_out ≈ sr_fn.T_producer_out atol=1e-10
@@ -388,8 +388,8 @@
         pvec    = [ProducerOutput(10.0, 80.0) for _ in 1:N]
         p_2arg  = (t, Ta, Tb) -> ProducerOutput(mass_flow=10.0, temperature=80.0)
 
-        sr_full = run_simulation(nw1, t, pvec; mode=:full)
-        sr_fwd  = run_simulation(nw2, t, p_2arg; mode=:forward_only)
+        sr_full = run_simulation(nw1, t, pvec; mode=:full, T0_f=60.0, T0_b=25.0)
+        sr_fwd  = run_simulation(nw2, t, p_2arg; mode=:forward_only, T0_f=60.0)
 
         # Forward thermal step is identical in both modes
         @test sr_full.T_load_in ≈ sr_fwd.T_load_in atol=1e-10
@@ -495,7 +495,7 @@
         sim_t  = float.(collect(range(0, stop=60*60, step=60)))
         Nsteps = length(sim_t)
         policy = (t, Ta, Tb) -> ProducerOutput(mass_flow=6.0, temperature=80.0)
-        sr = run_simulation(nw, sim_t, policy)
+        sr = run_simulation(nw, sim_t, policy; T0_f=60.0, T0_b=25.0)
 
         # sump labels are present
         @test "sump" ∈ sr[:sump_labels]
@@ -588,8 +588,8 @@
         set_load_m_rel!(nw_vector, "load2", fill(2.0, N))
 
         policy = (ts, Ta, Tb) -> ProducerOutput(mass_flow=10.0, temperature=80.0)
-        sr_c = run_simulation(nw_const,  t, policy; mode=:forward_only)
-        sr_v = run_simulation(nw_vector, t, policy; mode=:forward_only)
+        sr_c = run_simulation(nw_const,  t, policy; mode=:forward_only, T0_f=60.0)
+        sr_v = run_simulation(nw_vector, t, policy; mode=:forward_only, T0_f=60.0)
 
         @test sr_c.mass_flow_load ≈ sr_v.mass_flow_load   atol=1e-10
         @test sr_c.T_load_in      ≈ sr_v.T_load_in        atol=1e-10
@@ -627,7 +627,7 @@
         set_load_m_rel!(nw_tv, "load1", fill(1.0, N))
         set_load_m_rel!(nw_tv, "load2", fill(2.0, N))
         policy = (ts, Ta, Tb) -> ProducerOutput(mass_flow=10.0, temperature=80.0)
-        sr = run_simulation(nw_tv, t, policy; mode=:full, ambient_temperature=Tₐ)
+        sr = run_simulation(nw_tv, t, policy; mode=:full, ambient_temperature=Tₐ, T0_f=60.0, T0_b=25.0)
         @test length(sr) == N
         @test !any(isnan, sr.T_load_in)
         @test !any(isnan, sr.T_load_out)
