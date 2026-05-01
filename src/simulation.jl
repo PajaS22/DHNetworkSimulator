@@ -714,24 +714,22 @@ function set_relative_mass_flows!(nw::Network, step::Union{Int, Nothing}=nothing
     if length(unique(values(m_rel_sizes))) > 1
         error("Inconsistent m_rel vector lengths among load nodes: $(m_rel_sizes). All load nodes must have m_rel of the same type (constant Float64 or Vector{Float64} of the same length).")
     end
-    unique_size = only(unique(values(m_rel_sizes)))
-
-    @show unique_size
+    m_rel_size = only(unique(values(m_rel_sizes)))
 
     for e in edges(nw.mg)
-        if unique_size == 1
+        if m_rel_size == 1
             nw[src(e), dst(e)].m_rel = 0.0
         else
-            nw[src(e), dst(e)].m_rel = zeros(Float64, unique_size)
+            nw[src(e), dst(e)].m_rel = zeros(Float64, m_rel_size)
         end
     end
 
-    if !isnothing(step) || unique_size == 1
+    if !isnothing(step) || m_rel_size == 1
         _dfs_m_rel!(nw, something(step, 1))
         return
     end
 
-    for k in 1:unique_size
+    for k in 1:m_rel_size
         _dfs_m_rel!(nw, k)
     end
 end
