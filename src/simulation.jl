@@ -710,6 +710,12 @@ function set_relative_mass_flows!(nw::Network, step::Union{Int, Nothing}=nothing
         end
     end
 
+    # normalize load m_rel values
+    m_rel_sum = sum(m_rel(nw[l]) for l in nw.load_labels)
+    for l in nw.load_labels
+        set_m_rel!( nw[l], m_rel(nw[l]) / m_rel_sum )
+    end
+
     m_rel_sizes = Dict(l => nw[l].m_rel isa Vector{Float64} ? length(nw[l].m_rel) : 1 for l in nw.load_labels)
     if length(unique(values(m_rel_sizes))) > 1
         error("Inconsistent m_rel vector lengths among load nodes: $(m_rel_sizes). All load nodes must have m_rel of the same type (constant Float64 or Vector{Float64} of the same length).")
