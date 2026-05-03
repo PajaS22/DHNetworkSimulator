@@ -120,7 +120,7 @@
         @test size(sr.power_load)      == (N, 2)
         @test length(sr.T_producer_in)  == N
         @test length(sr.T_producer_out) == N
-        @test length(sr.power_producer) == N - 1
+        @test length(sr.power_producer) == N
 
         # no optional field is Nothing in :full mode
         @test !isnothing(sr.T_load_out)
@@ -256,7 +256,7 @@
 
         @test all(sr.T_producer_out .≈ 80.0)
         @test !isnothing(sr.power_producer)
-        @test length(sr.power_producer) == N - 1
+        @test length(sr.power_producer) == N
         # T_load_in is still NaN (forward step skipped regardless)
         @test all(isnan, sr.T_load_in)
     end

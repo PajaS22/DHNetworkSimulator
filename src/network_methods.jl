@@ -428,7 +428,7 @@ end
 
 function set_load_m_rel!(nw::Network, m_rel::Dict{String, Float64})
     if Set(keys(m_rel)) != Set(nw.load_labels)
-        ArgumentError("Keys of m_rel dictionary must match load_labels exactly. Expected keys: $(nw.load_labels), got: $(keys(m_rel))")
+        throw(ArgumentError("Keys of m_rel dictionary must match load_labels exactly. Expected keys: $(nw.load_labels), got: $(keys(m_rel))"))
     end
     
     for label in nw.load_labels

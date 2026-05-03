@@ -41,7 +41,7 @@ end
 - `T_producer_in`: return temperature entering the producer in °C. Length `N`. `Nothing` in forward-only mode. `NaN` when the return plug contains any initial-fill water.
 - `T_producer_out`: supply temperature leaving the producer in °C. Length `N`.
 - `power_load`: load power consumption in kW. Size `N × nloads`. `Nothing` in forward-only mode.
-- `power_producer`: producer power output in MW (computed from mass flow and ΔT). Length `N-1`. `Nothing` in forward-only mode.
+- `power_producer`: producer power output in MW (computed from mass flow and ΔT). Length `N`. `Nothing` in forward-only mode.
 - `load_labels`: mapping from load label to column index used in the `*_load` matrices.
 - `mass_flow_sump`: sump mass flows in kg/s. Size `N × nsumps`.
 - `T_sump_f`: supply (forward) temperature at each sump in °C. Size `N × nsumps`. `NaN` when the passing plug contains initial-fill water.
@@ -80,7 +80,6 @@ Universal aliases (work for any label — load, sump, or producer):
 
 # Notes
 - All matrices are organized as `(time step, node index)`.
-- `power_producer` has length `N-1` because the producer heats water that arrived from the *previous* time step — so there is one fewer value than time steps.
 """
 struct SimulationResults
     time::Union{Vector{Float64}, Vector{DateTime}}  # time vector
@@ -224,7 +223,7 @@ k₀ = get_k₀(sr::SimulationResults, mode::Symbol=:fwd; label::Union{Nothing, 
 """
 function get_k₀(sr::SimulationResults, mode::Symbol=:fwd; label::Union{Nothing, String, Vector{String}}=nothing)::Union{Nothing, Int, Dict{String, Union{Nothing, Int}}}
     if mode ∉ (:fwd, :bwd)
-        ArgumentError("Invalid mode: $mode. Must be :fwd or :bwd.")
+        throw(ArgumentError("Invalid mode: $mode. Must be :fwd or :bwd."))
     end
     if mode == :fwd
         if isnothing(label)
@@ -346,6 +345,7 @@ REPEAT for N time steps:
 - `T0_b`: initial temperature in the backward (return) pipes [°C]. Default `missing` (same logic
   as `T0_f`). Pass a `Float64` to pre-fill with a known value.
 - `ambient_temperature`: optional `Vector{Float64}` of ambient temperatures [°C], length N.
+- `min_load_output_temperature`: minimum outlet temperature for load nodes [°C]. Return temperatures are clamped to this value to avoid un-physical results. Default `5.0`.
 
 # Returns
 - `SimulationResults`: time series of temperatures, flows, and powers.
@@ -379,6 +379,7 @@ function run_simulation(
         T0_f                :: Union{Float64, Missing} = missing,
         T0_b                :: Union{Float64, Missing} = missing,
         ambient_temperature :: Union{Vector{Float64}, Nothing} = nothing,
+        min_load_output_temperature :: Float64 = 5.0,
         verbose = false) :: SimulationResults
 
     check_network!(network)
@@ -553,7 +554,7 @@ function run_simulation(
                 col = load_labels_cols[load_label]
                 P = power_consumption(network[load_label], Tₐ, i)
                 results_power_consumption[i, col] = P / 1000.0   # kW
-                consume_power!(return_plugs[load_label], P, Δt) && push!(clamped_loads, load_label)
+                consume_power!(return_plugs[load_label], P, Δt, min_load_output_temperature) && push!(clamped_loads, load_label)
                 results_temperature_load_out[i, col] = return_plugs[load_label].T
             end
         end
@@ -613,7 +614,7 @@ function run_simulation(
     # ---- warn once about clamped return temperatures ----
     if verbose && !isempty(clamped_loads)
         labels_str = join(sort(collect(clamped_loads)), ", ")
-        @warn "Return temperature was clamped to the minimum ($(MINIMAL_RETURN_TEMPERATURE) °C) at one or more time steps for load(s): $labels_str"
+        @warn "Return temperature was clamped to the minimum ($(min_load_output_temperature) °C) at one or more time steps for load(s): $labels_str"
     end
 
     # ---- producer power [MW] ----
@@ -622,8 +623,8 @@ function run_simulation(
     elseif mode == :backward_only && all(isnan, results_temperature_producer_out)
         nothing
     else
-        @. (results_temperature_producer_out[2:end] - results_temperature_producer_in[1:end-1]) *
-           results_mass_flow_producer[1:end-1] * WATER_SPECIFIC_HEAT / 1_000_000.0
+        @. (results_temperature_producer_out - results_temperature_producer_in) *
+           results_mass_flow_producer * WATER_SPECIFIC_HEAT / 1_000_000.0
     end
     verbose && @info("Simulation completed. Returning results struct.")
     return SimulationResults(
@@ -713,7 +714,7 @@ function set_relative_mass_flows!(nw::Network, step::Union{Int, Nothing}=nothing
     # normalize load m_rel values
     m_rel_sum = sum(m_rel(nw[l]) for l in nw.load_labels)
     for l in nw.load_labels
-        set_m_rel!( nw[l], m_rel(nw[l]) / m_rel_sum )
+        set_m_rel!( nw[l], m_rel(nw[l]) ./ m_rel_sum )
     end
 
     m_rel_sizes = Dict(l => nw[l].m_rel isa Vector{Float64} ? length(nw[l].m_rel) : 1 for l in nw.load_labels)
@@ -1258,15 +1259,15 @@ power_consumption(node::LoadNode, Tₐ::Nothing, ::Int=1) = 0.0
 
 `power` is in Watts and `Δt` is in seconds. Updates `p` in-place.
 
-Returns `true` if the return temperature was clamped to `MINIMAL_RETURN_TEMPERATURE`,
+Returns `true` if the output temperature was clamped to `min_output_temperature`,
 `false` otherwise.
 """
-function consume_power!(p::Plug, power::Float64, Δt::Float64)::Bool
+function consume_power!(p::Plug, power::Float64, Δt::Float64, min_output_temperature::Float64)::Bool
     cₚ = WATER_SPECIFIC_HEAT  # specific heat capacity in J/(kg·K)
     ΔT = power * Δt / (p.m * cₚ)  # temperature drop in K
     # NaN T (initial-fill contamination) propagates: NaN - ΔT = NaN, NaN < threshold = false
-    if p.T - ΔT < MINIMAL_RETURN_TEMPERATURE
-        p.T = MINIMAL_RETURN_TEMPERATURE
+    if p.T - ΔT < min_output_temperature
+        p.T = min_output_temperature
         return true
     end
     p.T -= ΔT
@@ -1386,11 +1387,12 @@ It performs:
 # Keyword Arguments
 - `ambient_temperature`: outdoor temperature in °C, or `nothing`. When `nothing`, load power consumption is skipped (loads don't cool the water) and pipe heat losses are not applied.
 - `step`: simulation step counter. Each plug's fractional entry time and exit time are derived from `step`, giving continuous transit times `τ = (k_exit - k_entry) · Δt`. Defaults to `1`. When calling this function in a manual stepping loop, pass the iteration index so that heat loss is computed correctly.
+- `min_load_output_temperature`: minimum outlet temperature for load nodes in °C. Return temperatures are clamped to this value. Defaults to `5.0`.
 
 # Returns
 - `(output_plugs, incoming_plug)` where `output_plugs` maps load labels to their inlet plug, and `incoming_plug` represents the return temperature entering the producer.
 """
-function time_step_thermal_dynamics!(nw::Network, Δt::Float64, input::ProducerOutput; ambient_temperature::Union{Float64, Nothing}=nothing, step::Int=1)
+function time_step_thermal_dynamics!(nw::Network, Δt::Float64, input::ProducerOutput; ambient_temperature::Union{Float64, Nothing}=nothing, step::Int=1, min_load_output_temperature::Float64=5.0)
     output_plugs = time_step_thermal_dynamics_forward!(nw, Δt, step, input.temperature, ambient_temperature)
 
     if !isnothing(ambient_temperature)
@@ -1398,10 +1400,10 @@ function time_step_thermal_dynamics!(nw::Network, Δt::Float64, input::ProducerO
         clamped = String[]
         for load_label in keys(output_plugs)
             P = power_consumption(nw[load_label], Tₐ_load, step)
-            consume_power!(output_plugs[load_label], P, Δt) && push!(clamped, load_label)
+            consume_power!(output_plugs[load_label], P, Δt, min_load_output_temperature) && push!(clamped, load_label)
         end
         if !isempty(clamped)
-            @warn "Return temperature clamped to minimum ($(MINIMAL_RETURN_TEMPERATURE) °C) at load(s) $(length(clamped)): $(join(sort(clamped), ", "))"
+            @warn "Return temperature clamped to minimum ($(min_load_output_temperature) °C) at load(s) $(length(clamped)): $(join(sort(clamped), ", "))"
         end
     end
 
