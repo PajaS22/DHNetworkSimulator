@@ -34,7 +34,7 @@ node_size(::NodeType) = 12      # pixel size for other node types
 node_sizes(mg::MetaGraph) = [node_size(v) for v in vertices_data(mg)]
 
 node_color(::JunctionNode) = colorant"black"
-node_color(::ProducerNode) = colorant"green"
+node_color(::ProducerNode) = colorant"purple"
 node_color(::LoadNode) = colorant"blue"
 node_color(::SumpNode) = colorant"green"
 node_color(::NodeType) = colorant"gray"  # default color
@@ -535,12 +535,15 @@ See [`compute_zero_pipe_load_positions`](@ref) for tuning options.
   appear when the view width drops below `zoom_factor_labels × typical_distance`
   (default `7.0`). Set higher than `zoom_factor` so edge labels appear before
   arrows as you zoom in. Hover labels are always visible regardless of zoom.
+- `show_velocity`: when `true` (default), `InsulatedPipe` edges are coloured by
+  water velocity. When `false`, all edges are drawn black.
 """
 function visualize_graph!(nw::Network;
                           k_attraction::Float64        = DEFAULT_ZERO_PIPE_K_ATTRACTION,
                           k_repulsion::Float64         = DEFAULT_ZERO_PIPE_K_REPULSION,
                           zoom_factor::Float64         = 5.0,
-                          zoom_factor_labels::Float64  = 1.0)
+                          zoom_factor_labels::Float64  = 1.0,
+                          show_velocity::Bool          = true)
     mg = nw.mg
 
     # Compute positions for any ZeroPipe-connected loads that lack one.
@@ -573,6 +576,8 @@ function visualize_graph!(nw::Network;
     n_nodes = nv(mg)
     n_edges = ne(mg)
 
+    initial_edge_colors = show_velocity ? edge_colors(mg) : fill(colorant"black", n_edges)
+
     f, ax, p = graphplot(mg,
                         layout     = any(ismissing.(node_positions)) ? GraphMakie.Spring() : node_positions,
                         node_size  = node_sizes(mg),
@@ -581,7 +586,7 @@ function visualize_graph!(nw::Network;
                         nlabels    = fill("", n_nodes),
                         nlabels_attr = (; markerspace = :pixel),
                         nlabels_fontsize = 12,
-                        edge_color = edge_colors(mg),
+                        edge_color = initial_edge_colors,
                         edge_width = edge_widths(mg, 10.0, 2.0),
                         edge_attr  = (; linestyle = edge_linestyles(mg)),
                         elabels    = fill("", n_edges),
@@ -668,7 +673,7 @@ function visualize_graph!(nw::Network;
         label = edge_label_list[idx]
 
         # Color: in-place mutation + notify (reliable for this pipeline stage).
-        p.edge_color[][idx] = state ? colorant"red" : edge_color(mg[label...])
+        p.edge_color[][idx] = state ? colorant"red" : initial_edge_colors[idx]
         notify(p.edge_color)
 
         # Labels: full array replacement required — the Makie compute pipeline
