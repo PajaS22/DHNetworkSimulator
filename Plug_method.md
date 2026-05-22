@@ -128,7 +128,7 @@ $$ \Delta T = \frac{P\,\Delta t}{m\,c_p} $$
 
 so the return-side plug temperature becomes $T - \Delta T$.
 
-To avoid unphysical results (like cooling the plug to lower temperature than is inside the building), the implementation clamps return temperature to a configured minimal value (`MINIMAL_RETURN_TEMPERATURE = 25.0`).
+To avoid unphysical results (like cooling the plug below the temperature inside the building), the implementation clamps the return temperature to a configurable minimum — the `min_load_output_temperature` keyword of `run_simulation` (default `5.0` °C).
 
 ---
 

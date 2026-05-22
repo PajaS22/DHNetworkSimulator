@@ -157,7 +157,7 @@ Visualization (plotting) of network is another feature that will come in handy. 
 
 By calling `visualize_graph!(network)` we get Makies display of our network.
 
-Blue nodes are loads, green is producer, black lines are pipes. The thicker the line, the bigger the pipe.
+Blue nodes are loads, purple is the producer, green nodes are sumps (measurement points), and black lines are pipes. The thicker the line, the bigger the pipe.
 
 ```julia
 f, ax, p = visualize_graph!(network)

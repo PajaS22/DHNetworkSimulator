@@ -7,10 +7,16 @@ Each pipe contains a queue of discrete **plugs of water**, where every plug has:
 - temperature `T` [°C]
 - mass `m` [kg]
 - fractional entry time `k` [Float64, in simulation-step units]
+- source injection window `t1`, `t2` [Float64, in simulation-step units]
 
 `k` records the sub-step time at which the plug's mass midpoint entered the current pipe.  It is a
 Float64 so that entry and exit times are tracked with sub-step precision.  Transit time through a
 pipe is `τ = (k_exit − k_entry) · Δt`, giving a continuous value even when the time step is large.
+
+`t1` and `t2` bracket the time window during which the plug was originally injected at its source
+(the producer on the supply side, a load on the return side). They are carried along during
+transport and used to report per-load and producer transit delays (`tau1` / `tau2`) in
+`SimulationResults`.
 
 Plugs advect through pipes according to the current mass flows, exchange heat with the environment
 via a simple heat-loss model, and (optionally) lose heat at loads according to the load power demand.
@@ -41,6 +47,42 @@ Each pipe edge represents two pipes and therefore stores two independent plug qu
 - `plugs_b`: plugs moving in the **backward/return** direction
 
 Within a pipe, plugs are treated as **non-mixing** parcels (no axial mixing). Mixing is handled explicitly only where the network topology merges/splits flow.
+
+## Plug operations at pipe boundaries
+
+Tracking individual plugs across the whole network — instead of re-averaging the temperature at
+every pipe outlet, as the simpler *node method* does — is what lets the plug flow method avoid
+numerical diffusion. Doing so requires three distinct operations at the boundaries between pipes:
+**partitioning**, **splitting**, and **blending**.
+
+**(a) Partitioning.** The mass that leaves a pipe during one step is `ṁ·Δt`, but the plugs queued
+in the pipe have arbitrary masses, so the step boundary generally falls *inside* a plug. That plug
+is partitioned into an exiting portion and a remaining portion; the remaining portion keeps its
+original entry time `k` and stays at the front of the queue for the next step. This is done by
+`collect_exiting_water_plugs!`.
+
+![partitioning of a water plug](figures/partitioning.png)
+*(a) Partitioning: the step boundary (red line) cuts through a plug, separating the part that exits this step from the part that remains in the pipe.*
+
+**(b) Splitting.** On the forward (supply) pass, when a plug reaches a junction it is split into one
+sub-plug per downstream branch. The division is proportional to the branch mass flows, so total mass
+is conserved and every sub-plug inherits the **same temperature** and the **same entry time** as the
+parent plug.
+
+![splitting of a water plug at a junction](figures/splitting.png)
+*(b) Splitting: a plug arriving at a junction is divided among the outgoing branches in proportion to their mass flows ṁ₁ and ṁ₂.*
+
+**(c) Blending.** On the backward (return) pass, two or more return streams meet at a junction and
+must be merged into a single stream. Because the mass flow is constant within a step, each branch's
+plug sequence is mapped onto a common normalized axis `f ∈ [0, 1]`; within every sub-interval the
+contributing branches have constant temperature and are combined into one plug by a mass-weighted
+average. This preserves both the total mass and every temperature boundary, and is implemented by
+`merge_water_plug_vectors!`.
+
+![blending of water plugs at a junction](figures/merging.png)
+*(c) Blending: two return plug sequences are merged into one, conserving total mass and all temperature boundaries.*
+
+The forward- and backward-pass sections below give the exact formulas for each of these operations.
 
 ## One simulation time step (high level)
 
@@ -138,6 +180,10 @@ Each load node computes power demand based on ambient temperature ``T_a`` (we us
 P = P(T_a) = p_1 + p_2 T_a + p_3 T_a^2
 ```
 
+This polynomial is only the default. Any demand function can be attached to a load through
+`set_load_fn!` / `LoadSpec`, including the two-part `hockey_load`, the mass-flow-dependent
+`general_hockey_load`, or a precomputed per-step power trajectory (`lookup_load_spec`).
+
 The entering plug is cooled by energy extraction over the step:
 
 ```math
@@ -146,7 +192,7 @@ The entering plug is cooled by energy extraction over the step:
 
 so the return-side plug temperature becomes ``T - \Delta T``.
 
-To avoid unphysical results (like cooling the plug to lower temperature than is inside the building), the implementation clamps return temperature to a configured minimal value (`MINIMAL_RETURN_TEMPERATURE = 25.0`).
+To avoid unphysical results (like cooling the plug below the temperature inside the building), the implementation clamps the return temperature to a configurable minimum — the `min_load_output_temperature` keyword of `run_simulation` (default `5.0` °C).
 
 ---
 
@@ -228,3 +274,4 @@ gives the correct two-pipe result without any cumulative-time tracking across pi
 - The plug representation is simplified over time by merging consecutive plugs with nearly identical temperature (`merge_same_temperature_plugs!`).
 - Stability and realism depend on choosing a reasonable ``\Delta t`` relative to flows and pipe volumes.
 - The fractional-``k`` scheme assumes **constant mass flow within each time step**.  All sub-step interpolations use the step-averaged ``\dot m``.
+- At the start of a run the pipes are pre-filled (`fill_pipes_with_initial_temperature!`). Until this initial water is flushed out, the reported temperatures mix in fluid of unknown origin. With the default `T0_f = T0_b = missing` such plugs carry `T = NaN`, and `get_k₀` returns the first fully flushed step so the contaminated leading outputs can be discarded.

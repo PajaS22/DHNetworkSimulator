@@ -17,7 +17,7 @@ See documentation at (https://pajas22.github.io/DHNetworkSimulator)
 ## Features
 
 - Network model built on `Graphs.jl` + `MetaGraphsNext.jl`
-- Node/edge types for producers, loads, junctions, and pipes
+- Node/edge types for producers, loads, junctions, sumps (tracked measurement points), and pipes
 - Steady-state hydrodynamics solver (`steady_state_hydrodynamics!`)
 - Time-stepping thermal simulation (`run_simulation`)
 - feedback control on the producer side (using policy function)

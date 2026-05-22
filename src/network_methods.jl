@@ -179,10 +179,27 @@ indegree(nw::Network, label::String) = length(inneighbors(nw, label))
 
 
 # Node data operations: positions
+"""Return a node's `(x, y)` coordinates as a tuple, or `missing` if no position is set.
+
+`EmptyNode`s and nodes whose `common.position` is unset return `missing`. Positions are
+used only by the visualization ([`visualize_graph!`](@ref)) — they do not affect simulation.
+"""
 position(::EmptyNode) = missing
 position(v::NT)  where {NT<:NodeType} = !ismissing(v.common.position) ? (v.common.position[1], v.common.position[2]) : missing
+
+"""Return the positions of every node in a `MetaGraph`, in label order.
+
+Each entry is an `(x, y)` tuple or `missing` (see [`position`](@ref)).
+"""
 positions(mg::MetaGraph) = [position(v) for v in vertices_data(mg)]
+
+"""Euclidean distance between two nodes' positions (in the coordinate units).
+
+Both nodes must have a position set; otherwise the field arithmetic errors.
+"""
 distance(v1::NodeType, v2::NodeType) = sqrt((v1.common.position[1] - v2.common.position[1])^2 + (v1.common.position[2] - v2.common.position[2])^2)
+
+"""Set a node's `(x, y)` coordinates in-place."""
 position!(v::NodeType, pos::Tuple{Float64, Float64}) = (v.common.position = pos)
 
 # vector operations for positions
@@ -377,6 +394,13 @@ function set_load_fn!(nw::Network, fn::Function, params_dict::Dict{String, <:Abs
 end
 
 
+"""Attach a ready-made [`LoadSpec`](@ref) to a single load node.
+
+Unlike [`set_load_fn!`](@ref) (which builds the spec from a function + parameters), this stores an
+existing `LoadSpec` directly. The spec is validated over the default ambient range before storing.
+
+See also: [`set_load_fn!`](@ref), [`lookup_load_spec`](@ref), [`validate_load_spec`](@ref).
+"""
 function set_load_spec!(nw::Network, label::String, spec::LoadSpec)
     has_label(nw, label) || error("Node with label $label does not exist in the network.")
     node = nw[label]
@@ -474,7 +498,16 @@ heat_resistance_forward(e::InsulatedPipe) = e.physical_params.heat_resistance_fo
 """Return thermal resistance (return direction) in m·K/W."""
 heat_resistance_backward(e::InsulatedPipe) = e.physical_params.heat_resistance_backward
 
+"""Set the supply-direction thermal resistance `R` [m·K/W] of a pipe in-place.
+
+See also: [`heat_resistance_forward`](@ref), [`heat_resistance_backward!`](@ref).
+"""
 heat_resistance_forward!(e::InsulatedPipe, R::Float64) = (e.physical_params.heat_resistance_forward = R)
+
+"""Set the return-direction thermal resistance `R` [m·K/W] of a pipe in-place.
+
+See also: [`heat_resistance_backward`](@ref), [`heat_resistance_forward!`](@ref).
+"""
 heat_resistance_backward!(e::InsulatedPipe, R::Float64) = (e.physical_params.heat_resistance_backward = R)
 
 
@@ -537,8 +570,11 @@ function set_m_rel!(n::NodeType, value::Union{Float64, Vector{Float64}})
     n.m_rel = value
 end
 
+"""Return the human-readable `info` label of a node or pipe (shown in printing and plots)."""
 info(n::NodeType) = n.common.info
 info(e::Union{InsulatedPipe, ZeroPipe}) = e.info
+
+"""Set the human-readable `info` label of a node or pipe in-place."""
 info!(n::NodeType, new_info::String) = (n.common.info = new_info)
 info!(e::Union{InsulatedPipe, ZeroPipe}, new_info::String) = (e.info = new_info)
 

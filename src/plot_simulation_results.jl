@@ -36,7 +36,7 @@ plot_simulation_results(plot::Plots.Plot{Plots.GRBackend}, sr::SimulationResults
 
 # Notes
 - If `sr[:time]` is `Vector{Float64}`, the x-axis is converted from seconds to minutes.
-- `:power_producer` has length `N-1` and is plotted against `time[1:end-1]`.
+- `:power_producer` has length `N` and is plotted against the full time vector.
 - When plotting producer variables, the line style defaults to dashed (unless you override `linestyle`).
 
 # Examples
@@ -95,11 +95,7 @@ function plot_simulation_results(plot::Plots.Plot{Plots.GRBackend}, sr::Simulati
         if :linestyle ∉ keys(kwargs)
             kwargs = merge(NamedTuple(kwargs), (linestyle=:dash,))
         end
-        if physical_var == :power_producer
-            Plots.plot!(plot, time_plot[1:end-1], sr[:power_producer]; label="producer", kwargs...)
-        else
-            Plots.plot!(plot, time_plot, sr[physical_var]; label="producer", kwargs...)
-        end
+        Plots.plot!(plot, time_plot, sr[physical_var]; label="producer", kwargs...)
     elseif (physical_var ∈ load_vars)
         for label in labels
             Plots.plot!(plot, time_plot, sr[label, physical_var]; label=label, linestyle=:solid, kwargs...)

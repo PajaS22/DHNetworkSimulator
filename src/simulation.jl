@@ -287,7 +287,8 @@ get_k0 = get_k₀  # alias with ASCII character
 ```julia
 run_simulation(network, sim_time, policy;
                mode=:full, T_return_inject=nothing,
-               T0_f=60.0, T0_b=25.0, ambient_temperature=nothing)
+               T0_f=missing, T0_b=missing, ambient_temperature=nothing,
+               min_load_output_temperature=5.0)
 ```
 
 This is the main entry point for time stepping.

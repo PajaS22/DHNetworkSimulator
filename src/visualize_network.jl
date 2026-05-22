@@ -533,8 +533,9 @@ See [`compute_zero_pipe_load_positions`](@ref) for tuning options.
   below `zoom_factor × typical_distance` (default `5.0`).
 - `zoom_factor_labels`: default edge labels (mass flow, relative mass flow)
   appear when the view width drops below `zoom_factor_labels × typical_distance`
-  (default `7.0`). Set higher than `zoom_factor` so edge labels appear before
-  arrows as you zoom in. Hover labels are always visible regardless of zoom.
+  (default `1.0`). Increase it to reveal edge labels at a more zoomed-out view;
+  set it above `zoom_factor` to have edge labels appear before flow arrows as you
+  zoom in. Hover labels are always visible regardless of zoom.
 - `show_velocity`: when `true` (default), `InsulatedPipe` edges are coloured by
   water velocity. When `false`, all edges are drawn black.
 """
@@ -695,6 +696,12 @@ function visualize_graph!(nw::Network;
     return f, ax, p
 end
 
+"""Build and immediately display a network visualization.
+
+A convenience wrapper around [`visualize_graph!`](@ref): it calls it with the same keyword
+arguments, displays the resulting figure, and returns the figure. Use [`visualize_graph!`](@ref)
+directly when you need the `(figure, axis, plot)` triple (e.g. for highlighting).
+"""
 function draw(nw::Network; kwargs...)
     f, ax, p = visualize_graph!(nw; kwargs...)
     display(f)

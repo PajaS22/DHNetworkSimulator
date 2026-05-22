@@ -73,10 +73,22 @@ DHNetworkSimulator.outneighbors
 DHNetworkSimulator.inneighbors
 ```
 
+## Node and edge metadata and geometry
+
+```@docs
+DHNetworkSimulator.info
+DHNetworkSimulator.info!
+DHNetworkSimulator.position
+DHNetworkSimulator.positions
+DHNetworkSimulator.position!
+DHNetworkSimulator.distance
+```
+
 ## Visualization and printing
 
 ```@docs
 DHNetworkSimulator.visualize_graph!
+DHNetworkSimulator.draw
 DHNetworkSimulator.compute_zero_pipe_load_positions
 DHNetworkSimulator.DEFAULT_ZERO_PIPE_K_ATTRACTION
 DHNetworkSimulator.DEFAULT_ZERO_PIPE_K_REPULSION
@@ -102,6 +114,8 @@ DHNetworkSimulator.inner_diameter
 DHNetworkSimulator.volume
 DHNetworkSimulator.heat_resistance_forward
 DHNetworkSimulator.heat_resistance_backward
+DHNetworkSimulator.heat_resistance_forward!
+DHNetworkSimulator.heat_resistance_backward!
 DHNetworkSimulator.mass_flow
 DHNetworkSimulator.m_rel
 DHNetworkSimulator.set_m_rel!
@@ -127,6 +141,7 @@ DHNetworkSimulator.general_hockey_load
 DHNetworkSimulator.lookup_load_spec
 DHNetworkSimulator.validate_load_spec
 DHNetworkSimulator.set_load_fn!
+DHNetworkSimulator.set_load_spec!
 DHNetworkSimulator.set_load_m_rel!
 ```
 
